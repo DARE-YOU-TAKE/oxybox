@@ -4,4 +4,4 @@ default-members = ["oxybox"]
 resolver = "2"
 
 [workspace.dependencies]
-glam = "0.32"
+glam = "0.33"
