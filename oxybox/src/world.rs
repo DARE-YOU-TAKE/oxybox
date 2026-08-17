@@ -69,43 +69,76 @@ impl World {
     /// Overlap test for circles.
     ///
     /// The callback will be called for each shape which overlaps with the provided circle. If the callback
-    /// returns `false`, then we will stop iterating and return early.
-    pub fn overlap_circle<OverlapFn>(&self, circle_position: Vec2, radius: f32, mut overlap: OverlapFn) -> OverlapStats
+    /// returns `Some(r)`, then we will stop iterating early and return `r`.
+    ///
+    /// If query stats are desired, call [`World::overlap_circle_with_stats`].
+    pub fn overlap_circle<OverlapFn, R>(&self, circle_position: Vec2, radius: f32, overlap: OverlapFn) -> Option<R>
     where
-        OverlapFn: FnMut(ShapeId) -> bool,
+        OverlapFn: FnMut(ShapeId) -> Option<R>,
+    {
+        self.overlap_circle_with_stats(circle_position, radius, overlap).1
+    }
+
+    /// Overlap test for circles.
+    ///
+    /// The callback will be called for each shape which overlaps with the provided circle. If the callback
+    /// returns `Some(r)`, then we will stop iterating early and return `r` alongside the query stats.
+    pub fn overlap_circle_with_stats<OverlapFn, R>(
+        &self,
+        circle_position: Vec2,
+        radius: f32,
+        overlap: OverlapFn,
+    ) -> (OverlapStats, Option<R>)
+    where
+        OverlapFn: FnMut(ShapeId) -> Option<R>,
     {
         // safety: we are copying all data and we know that glam::Vec2 is the exact same as b2Vec2 so we
         // can make a pointer to it. Additionally, it survives this function entirely.
         let hit_circle = unsafe { sys::b2MakeProxy(&circle_position as *const Vec2 as *const sys::b2Vec2, 1, radius) };
 
-        extern "C" fn overlap_trampoline<OverlapFn>(shape: sys::b2ShapeId, cback: *mut std::ffi::c_void) -> bool
-        where
-            OverlapFn: FnMut(ShapeId) -> bool,
-        {
-            // safety: Rust's type system promises that this is the same type of closure
-            // which we are passing. We *are* passing this closure as an `&mut OverlapFn`
-            // when we call `sys::b2World_OverlapShape`
-            let cback: &mut OverlapFn = unsafe { &mut *(cback as *mut OverlapFn) };
-
-            // call the guy!
-            cback(ShapeId::from_b2(shape))
+        struct OverlapCtx<OverlapFn, R> {
+            overlap: OverlapFn,
+            result: Option<R>,
         }
 
-        // safety: the callback is owned by us, and we can make a pointer to it, which we can cast to
-        // `std::ffi::c_void`, which will get the closure back eventually.
+        let mut ctx = OverlapCtx { overlap, result: None };
+
+        extern "C" fn overlap_trampoline<OverlapFn, R>(shape: sys::b2ShapeId, cback: *mut std::ffi::c_void) -> bool
+        where
+            OverlapFn: FnMut(ShapeId) -> Option<R>,
+        {
+            // safety: Rust's type system promises that this is the same type of context
+            // which we are passing. We *are* passing this context as an `&mut OverlapCtx<OverlapFn, R>`
+            // when we call `sys::b2World_OverlapShape`
+            let ctx: &mut OverlapCtx<OverlapFn, R> = unsafe { &mut *(cback as *mut OverlapCtx<OverlapFn, R>) };
+
+            // call the guy! stop iterating (return false) once we have a result
+            match (ctx.overlap)(ShapeId::from_b2(shape)) {
+                Some(r) => {
+                    ctx.result = Some(r);
+                    false
+                }
+                None => true,
+            }
+        }
+
+        // safety: the context is owned by us, and we can make a pointer to it, which we can cast to
+        // `std::ffi::c_void`, which will get the context back eventually.
         let performance_stats = unsafe {
             sys::b2World_OverlapShape(
                 self.id,
                 &hit_circle,
                 sys::b2DefaultQueryFilter(),
-                Some(overlap_trampoline::<OverlapFn>),
-                &mut overlap as *mut _ as *mut _,
+                Some(overlap_trampoline::<OverlapFn, R>),
+                &mut ctx as *mut OverlapCtx<OverlapFn, R> as *mut std::ffi::c_void,
             )
         };
 
         // safety: we know that `OverlapStats` and `b2TreeStats` are the exact
         // same bit-representation as per our static_assertions
-        unsafe { std::mem::transmute::<sys::b2TreeStats, OverlapStats>(performance_stats) }
+        let stats = unsafe { std::mem::transmute::<sys::b2TreeStats, OverlapStats>(performance_stats) };
+
+        (stats, ctx.result)
     }
 
     /// Get contact events for this current time step.
