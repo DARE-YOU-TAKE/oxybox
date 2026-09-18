@@ -8,14 +8,17 @@ use crate::{BodyId, ShapeId};
 /// Each world is completely independent and may be simulated in parallel.
 #[derive(Debug)]
 pub struct World {
-    pub id: sys::b2WorldId,
-    pub dt: f32,
+    pub(crate) id: sys::b2WorldId,
+    pub(crate) dt: f32,
 }
 
 impl World {
     const SUBSTEPS: i32 = 4;
 
     /// Create a world for rigid body simulation.
+    ///
+    /// `delta_time` is the amount of time to simulate when we call [`World::step`].
+    /// Usually `1.0 / 60.0`.
     pub fn new(delta_time: f32) -> Self {
         let id = unsafe { sys::b2CreateWorld(&sys::b2DefaultWorldDef()) };
         Self { id, dt: delta_time }
@@ -26,6 +29,11 @@ impl World {
     /// This should be a fixed number. Usually `1.0 / 60.0`.
     pub fn dt(&self) -> f32 {
         self.dt
+    }
+
+    /// The raw id of the world.
+    pub fn id(&self) -> sys::b2WorldId {
+        self.id
     }
 
     /// Simulate a world for one time step.
