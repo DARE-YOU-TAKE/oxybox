@@ -1,9 +1,11 @@
 use glam::Vec2;
 use std::os::raw::c_void;
 
-use crate::{ShapeDefinition, ShapeId, World};
+use crate::{ShapeDefinition, ShapeId};
 
 /// Body id references a body instance. This should be treated as an opaque handle.
+///
+/// You can create a `BodyId` with [`World::create_body`](crate::World::create_body).
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct BodyId(sys::b2BodyId);
@@ -32,18 +34,16 @@ impl BodyId {
     }
 
     /// Sets arbitrary user data on the body.
-    pub fn set_user_data(&self, data: u64) {
+    pub fn set_user_data(&self, data: usize) {
         unsafe {
-            sys::b2Body_SetUserData(self.0, data as usize as *mut c_void);
+            sys::b2Body_SetUserData(self.0, data as *mut c_void);
         }
     }
 
-    /// Get the user data stored in a body, if any.
-    pub fn user_data(&self) -> Option<u64> {
-        unsafe {
-            let ptr = sys::b2Body_GetUserData(self.0);
-            (!ptr.is_null()).then_some(ptr as u64)
-        }
+    /// Get the user data stored in a body, if any. By default, all user data has `0` stored
+    /// within it.
+    pub fn user_data(&self) -> usize {
+        unsafe { sys::b2Body_GetUserData(self.0) as usize }
     }
 
     /// Get the world rotation of a body in radians.
@@ -82,11 +82,12 @@ impl BodyId {
     }
 
     /// Apply an impulse to the center of mass. This immediately modifies the velocity.
-    /// The impulse is ignored if the body is not awake. This optionally wakes the body.
+    /// The impulse is ignored if the body is not awake.
     ///
     /// `impulse` is the world impulse vector, usually in Ns or kgm/s.
-    pub fn apply_impulse(&self, impulse: Vec2) {
-        unsafe { sys::b2Body_ApplyLinearImpulseToCenter(self.0, impulse.into(), true) }
+    /// `wake` will also wake up the body.
+    pub fn apply_impulse(&self, impulse: Vec2, wake: bool) {
+        unsafe { sys::b2Body_ApplyLinearImpulseToCenter(self.0, impulse.into(), wake) }
     }
 
     /// Apply an impulse at a point. This immediately modifies the velocity.
@@ -94,16 +95,17 @@ impl BodyId {
     ///
     /// `impulse` is the world impulse vector, usually in Ns or kgm/s.
     /// `point` is the world position of the point of application.
-    pub fn apply_impulse_at(&self, impulse: Vec2, point: Vec2) {
-        unsafe { sys::b2Body_ApplyLinearImpulse(self.0, impulse.into(), point.into(), true) }
+    /// `wake` will also wake up the body.
+    pub fn apply_impulse_at(&self, impulse: Vec2, point: Vec2, wake: bool) {
+        unsafe { sys::b2Body_ApplyLinearImpulse(self.0, impulse.into(), point.into(), wake) }
     }
 
     /// Apply an angular impulse. The impulse is ignored if the body is not awake.
     ///
     /// `impulse` is the angular impulse, usually in units of kgmm/s.
-    /// `wake` is also wake up the body.
-    pub fn apply_angular_impulse(&self, impulse: f32) {
-        unsafe { sys::b2Body_ApplyAngularImpulse(self.0, impulse, true) }
+    /// `wake` will also wake up the body.
+    pub fn apply_angular_impulse(&self, impulse: f32, wake: bool) {
+        unsafe { sys::b2Body_ApplyAngularImpulse(self.0, impulse, wake) }
     }
 
     /// Get the mass of the body, usually in kilograms.
@@ -123,13 +125,6 @@ impl BodyId {
     /// Body identifier validation. Can be used to detect orphaned ids. Provides validation for up to 64K allocations.
     pub fn body_valid(&self) -> bool {
         unsafe { sys::b2Body_IsValid(self.0) }
-    }
-
-    /// Create a rigid body given a definition.
-    pub fn create(world: &World, body_definition: &BodyDefinition) -> BodyId {
-        let body_id = unsafe { sys::b2CreateBody(world.id, &body_definition.0) };
-
-        BodyId::from_b2(body_id)
     }
 
     /// Attaches a circle to the body.
@@ -165,7 +160,6 @@ impl BodyId {
     /// We weld close points and remove collinear points.
     ///
     /// If a hull would be made empty, no polygon is attached.
-    #[must_use]
     pub fn attach_polygon(self, polygon_points: &[Vec2], shape_def: &ShapeDefinition) -> Option<ShapeId> {
         ShapeId::create_polygon(self, polygon_points, shape_def)
     }
@@ -193,8 +187,9 @@ impl std::fmt::Debug for BodyId {
 ///
 /// You can safely re-use body definitions. Shapes are added to a body after construction.
 /// Body definitions are temporary objects used to bundle creation parameters.
+#[derive(Debug, Clone, Copy)]
 #[repr(transparent)]
-pub struct BodyDefinition(sys::b2BodyDef);
+pub struct BodyDefinition(pub(crate) sys::b2BodyDef);
 
 impl BodyDefinition {
     /// Creates a new BodyDefinition for use in creating a body.
@@ -284,7 +279,7 @@ impl Default for BodyDefinition {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Default)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Default)]
 #[repr(u32)]
 pub enum BodyKind {
     /// Positive mass, velocity determined by forces, moved by solver

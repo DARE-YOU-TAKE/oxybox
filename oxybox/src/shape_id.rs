@@ -24,55 +24,52 @@ impl ShapeId {
         let shape = unsafe { sys::b2Shape_GetType(self.0) };
         match shape {
             sys::b2ShapeType_b2_circleShape => ShapeKind::Circle,
+            sys::b2ShapeType_b2_capsuleShape => ShapeKind::Capsule,
+            sys::b2ShapeType_b2_segmentShape => ShapeKind::Segment,
             sys::b2ShapeType_b2_polygonShape => ShapeKind::Polygon,
+            sys::b2ShapeType_b2_chainSegmentShape => ShapeKind::ChainSegment,
             s => unimplemented!("{s:?}"),
         }
     }
 
-    /// Gets the dimensions of the body. This can be imagined as a box which will
+    /// Gets the dimensions of the shape. This can be imagined as a box which will
     /// fully enclose the given shape.
+    ///
+    /// These are the shape's own dimensions, in the local space of the body it is attached to --
+    /// the body's rotation is not applied.
     pub fn dimensions(&self) -> Vec2 {
-        Vec2::new(self.width(), self.height())
+        // an identity transform, so that we measure the shape in its own body-local space
+        let identity = sys::b2Transform {
+            p: sys::b2Vec2 { x: 0.0, y: 0.0 },
+            q: sys::b2Rot { c: 1.0, s: 0.0 },
+        };
+
+        let aabb = unsafe {
+            match self.shape_kind() {
+                ShapeKind::Circle => sys::b2ComputeCircleAABB(&sys::b2Shape_GetCircle(self.0), identity),
+                ShapeKind::Capsule => sys::b2ComputeCapsuleAABB(&sys::b2Shape_GetCapsule(self.0), identity),
+                ShapeKind::Segment => sys::b2ComputeSegmentAABB(&sys::b2Shape_GetSegment(self.0), identity),
+                ShapeKind::Polygon => sys::b2ComputePolygonAABB(&sys::b2Shape_GetPolygon(self.0), identity),
+                ShapeKind::ChainSegment => {
+                    sys::b2ComputeSegmentAABB(&sys::b2Shape_GetChainSegment(self.0).segment, identity)
+                }
+            }
+        };
+
+        Vec2::new(
+            aabb.upperBound.x - aabb.lowerBound.x,
+            aabb.upperBound.y - aabb.lowerBound.y,
+        )
     }
 
-    /// Gets the width of the given shape.
+    /// Gets the width of the given shape. See [`ShapeId::dimensions`].
     pub fn width(&self) -> f32 {
-        unsafe {
-            match self.shape_kind() {
-                ShapeKind::Circle => sys::b2Shape_GetCircle(self.0).radius * 2.0,
-                ShapeKind::Polygon => {
-                    let polygon = sys::b2Shape_GetPolygon(self.0);
-                    let mut min_x = f32::INFINITY;
-                    let mut max_x = f32::NEG_INFINITY;
-                    for i in 0..polygon.count as usize {
-                        let x = polygon.vertices[i].x;
-                        min_x = min_x.min(x);
-                        max_x = max_x.max(x);
-                    }
-                    max_x - min_x
-                }
-            }
-        }
+        self.dimensions().x
     }
 
-    /// Gets the height of the given shape.
+    /// Gets the height of the given shape. See [`ShapeId::dimensions`].
     pub fn height(&self) -> f32 {
-        unsafe {
-            match self.shape_kind() {
-                ShapeKind::Circle => sys::b2Shape_GetCircle(self.0).radius * 2.0,
-                ShapeKind::Polygon => {
-                    let polygon = sys::b2Shape_GetPolygon(self.0);
-                    let mut min_y = f32::INFINITY;
-                    let mut max_y = f32::NEG_INFINITY;
-                    for i in 0..polygon.count as usize {
-                        let y = polygon.vertices[i].y;
-                        min_y = min_y.min(y);
-                        max_y = max_y.max(y);
-                    }
-                    max_y - min_y
-                }
-            }
-        }
+        self.dimensions().y
     }
 
     /// Shape identifier validation. Provides validation for up to 64K allocations.
@@ -91,7 +88,6 @@ impl ShapeId {
     /// Create a circle given a definition.
     ///
     /// The `center` is the local offset from the body, and the `radius` is the radius of the circle.
-    #[must_use]
     pub fn create_circle(body_id: BodyId, center: Vec2, radius: f32, shape_def: &ShapeDefinition) -> Self {
         let shape_id = unsafe {
             sys::b2CreateCircleShape(
@@ -111,7 +107,6 @@ impl ShapeId {
     ///
     /// `half_dims` are the half dimensions of the rectangle, `offset` is the offset relative to the body,
     /// and `rotation` is the rotation amount in radians.
-    #[must_use]
     pub fn create_rectangle(
         body_id: BodyId,
         half_dims: Vec2,
@@ -273,6 +268,15 @@ pub enum ShapeKind {
     /// A circle with an offset
     Circle = sys::b2ShapeType_b2_circleShape,
 
+    /// A capsule is an extruded circle
+    Capsule = sys::b2ShapeType_b2_capsuleShape,
+
+    /// A line segment
+    Segment = sys::b2ShapeType_b2_segmentShape,
+
     /// A convex polygon. Often, this is a rectangle.
     Polygon = sys::b2ShapeType_b2_polygonShape,
+
+    /// A line segment owned by a chain shape
+    ChainSegment = sys::b2ShapeType_b2_chainSegmentShape,
 }

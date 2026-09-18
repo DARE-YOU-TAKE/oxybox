@@ -6,10 +6,15 @@ use crate::{BodyId, ShapeId};
 ///
 /// A world contains bodies, shapes, and constraints. You make create up to 128 worlds.
 /// Each world is completely independent and may be simulated in parallel.
+///
+/// Dropping a world destroys it, along with every body and shape inside it. Any [`BodyId`]
+/// or [`ShapeId`] taken from a world is left dangling once that world is dropped.
 #[derive(Debug)]
 pub struct World {
     pub(crate) id: sys::b2WorldId,
     pub(crate) dt: f32,
+
+    
 }
 
 impl World {
@@ -38,40 +43,23 @@ impl World {
 
     /// Simulate a world for one time step.
     /// This performs collision detection, integration, and constraint solution.
-    pub fn step(&self) {
+    pub fn step(&mut self) {
         unsafe {
             sys::b2World_Step(self.id, self.dt, Self::SUBSTEPS);
         }
     }
 
-    /// Destroy a world.
-    pub fn destroy(self) {
-        unsafe { sys::b2DestroyWorld(self.id) }
-    }
-
     /// Set the gravity vector for the entire world. Box2D has no concept of an up direction and
     /// this is left as a decision for the application. Usually in m/s^2.
-    pub fn set_gravity(&self, gravity: Vec2) {
+    pub fn set_gravity(&mut self, gravity: Vec2) {
         unsafe { sys::b2World_SetGravity(self.id, gravity.into()) }
     }
 
-    /// Sets the pixels-per-meter Box2D will expect. While you're free to work with whatever units
-    /// you please, setting this will help Box2D tweak internal numbers to better work with your
-    /// expectations.
-    ///
-    /// **NOTE: This is a global value -- Box2D does not support different unit lengths per-world.**
-    pub fn set_length_units_per_meter(&self, ppm: f32) {
-        unsafe { sys::b2SetLengthUnitsPerMeter(ppm) }
-    }
-
-    /// Get the current length units per meter.
-    pub fn length_units_per_meter(&self) -> f32 {
-        unsafe { sys::b2GetLengthUnitsPerMeter() }
-    }
-
     /// Create a rigid body given a definition.
-    pub fn create_body(&self, body_definition: &crate::BodyDefinition) -> BodyId {
-        BodyId::create(self, body_definition)
+    pub fn create_body(&mut self, body_definition: &crate::BodyDefinition) -> BodyId {
+        let body_id = unsafe { sys::b2CreateBody(self.id, &body_definition.0) };
+
+        BodyId::from_b2(body_id)
     }
 
     /// Overlap test for circles.
@@ -79,22 +67,33 @@ impl World {
     /// The callback will be called for each shape which overlaps with the provided circle. If the callback
     /// returns `Some(r)`, then we will stop iterating early and return `r`.
     ///
+    /// Only shapes which pass `filter` are considered -- see [`QueryFilter`].
     /// If query stats are desired, call [`World::overlap_circle_with_stats`].
-    pub fn overlap_circle<OverlapFn, R>(&self, circle_position: Vec2, radius: f32, overlap: OverlapFn) -> Option<R>
+    pub fn overlap_circle<OverlapFn, R>(
+        &self,
+        circle_position: Vec2,
+        radius: f32,
+        filter: QueryFilter,
+        overlap: OverlapFn,
+    ) -> Option<R>
     where
         OverlapFn: FnMut(ShapeId) -> Option<R>,
     {
-        self.overlap_circle_with_stats(circle_position, radius, overlap).1
+        self.overlap_circle_with_stats(circle_position, radius, filter, overlap)
+            .1
     }
 
     /// Overlap test for circles.
     ///
     /// The callback will be called for each shape which overlaps with the provided circle. If the callback
     /// returns `Some(r)`, then we will stop iterating early and return `r` alongside the query stats.
+    ///
+    /// Only shapes which pass `filter` are considered -- see [`QueryFilter`].
     pub fn overlap_circle_with_stats<OverlapFn, R>(
         &self,
         circle_position: Vec2,
         radius: f32,
+        filter: QueryFilter,
         overlap: OverlapFn,
     ) -> (OverlapStats, Option<R>)
     where
@@ -136,37 +135,91 @@ impl World {
             sys::b2World_OverlapShape(
                 self.id,
                 &hit_circle,
-                sys::b2DefaultQueryFilter(),
+                filter.0,
                 Some(overlap_trampoline::<OverlapFn, R>),
                 &mut ctx as *mut OverlapCtx<OverlapFn, R> as *mut std::ffi::c_void,
             )
         };
 
-        // safety: we know that `OverlapStats` and `b2TreeStats` are the exact
-        // same bit-representation as per our static_assertions
-        let stats = unsafe { std::mem::transmute::<sys::b2TreeStats, OverlapStats>(performance_stats) };
+        let stats = OverlapStats {
+            node_visits: performance_stats.nodeVisits,
+            leaf_visits: performance_stats.leafVisits,
+        };
 
         (stats, ctx.result)
     }
 
     /// Get contact events for this current time step.
-    pub fn contact_events(&self) -> impl Iterator<Item = (BodyId, BodyId)> {
-        unsafe {
+    ///
+    /// Note that contact events are opt-in per shape: a shape must be created with
+    /// [`ShapeDefinition::enable_contact_events(true)`](crate::ShapeDefinition::enable_contact_events)
+    /// or it will never appear here. Box2D leaves this off by default.
+    pub fn contact_events(&self) -> impl Iterator<Item = (BodyId, BodyId)> + '_ {
+        // safety: Box2D hands us its internal event buffer, which lives until the next step. The
+        // buffer pointer is null when the world is locked, and a null pointer is not a valid empty
+        // slice, so we check for it.
+        let begin_events: &[sys::b2ContactBeginTouchEvent] = unsafe {
             let contact_events = sys::b2World_GetContactEvents(self.id);
-            let begin_events: &mut [sys::b2ContactBeginTouchEvent] =
-                std::slice::from_raw_parts_mut(contact_events.beginEvents, contact_events.beginCount as usize);
 
-            begin_events.iter_mut().filter_map(|e| {
-                if !sys::b2Shape_IsValid(e.shapeIdA) || !sys::b2Shape_IsValid(e.shapeIdB) {
-                    None
-                } else {
-                    Some((
-                        sys::b2Shape_GetBody(e.shapeIdA).into(),
-                        sys::b2Shape_GetBody(e.shapeIdB).into(),
-                    ))
-                }
-            })
-        }
+            if contact_events.beginEvents.is_null() {
+                &[]
+            } else {
+                std::slice::from_raw_parts(contact_events.beginEvents, contact_events.beginCount as usize)
+            }
+        };
+
+        begin_events.iter().filter_map(|e| unsafe {
+            if !sys::b2Shape_IsValid(e.shapeIdA) || !sys::b2Shape_IsValid(e.shapeIdB) {
+                None
+            } else {
+                Some((
+                    sys::b2Shape_GetBody(e.shapeIdA).into(),
+                    sys::b2Shape_GetBody(e.shapeIdB).into(),
+                ))
+            }
+        })
+    }
+}
+
+impl Drop for World {
+    fn drop(&mut self) {
+        unsafe { sys::b2DestroyWorld(self.id) }
+    }
+}
+
+/// Limits which shapes a world query considers.
+///
+/// A shape is only reported by a query when the shape's category is in the query's mask *and* the
+/// query's category is in the shape's mask.
+#[derive(Debug, Clone, Copy)]
+#[repr(transparent)]
+pub struct QueryFilter(sys::b2QueryFilter);
+
+impl QueryFilter {
+    /// Creates a new QueryFilter which has a category of `1` and a mask of
+    /// every bit, which matches any shape left on the default [`ShapeDefinition`](crate::ShapeDefinition)
+    /// filter.
+    pub fn new() -> Self {
+        Self(unsafe { sys::b2DefaultQueryFilter() })
+    }
+
+    /// The collision category bits of this query. Normally you just set one bit.
+    pub fn category(mut self, category: u64) -> Self {
+        self.0.categoryBits = category;
+        self
+    }
+
+    /// The collision mask bits. This states the shape categories that this query would accept
+    /// for collision.
+    pub fn mask(mut self, mask: u64) -> Self {
+        self.0.maskBits = mask;
+        self
+    }
+}
+
+impl Default for QueryFilter {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -180,15 +233,3 @@ pub struct OverlapStats {
     /// Number of leaf nodes visited during the query"]
     pub leaf_visits: i32,
 }
-
-// glam and b2Vec2 are the same thing (two f32s):
-static_assertions::assert_eq_size!(sys::b2TreeStats, OverlapStats);
-static_assertions::assert_eq_align!(sys::b2TreeStats, OverlapStats);
-static_assertions::const_assert_eq!(
-    std::mem::offset_of!(sys::b2TreeStats, nodeVisits),
-    std::mem::offset_of!(OverlapStats, node_visits)
-);
-static_assertions::const_assert_eq!(
-    std::mem::offset_of!(sys::b2TreeStats, leafVisits),
-    std::mem::offset_of!(OverlapStats, leaf_visits)
-);

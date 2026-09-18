@@ -36,7 +36,6 @@ version = "0.1.0"
 dependencies = [
  "glam",
  "oxybox-sys",
- "static_assertions",
 ]
 
 [[package]]
