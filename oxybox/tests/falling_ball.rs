@@ -38,7 +38,10 @@ fn ground_and_ball(world: &mut World, shape_def: &ShapeDefinition) -> (BodyId, B
 fn falling_ball() {
     let _guard = world_lock();
 
-    let mut world = World::new(&WorldDefinition::new().gravity(Vec2::new(0.0, -10.0)));
+    let mut world = World::new(WorldDefinition {
+        gravity: Vec2::new(0.0, -10.0),
+        ..WorldDefinition::new()
+    });
 
     let (_ground, ball) = ground_and_ball(&mut world, &ShapeDefinition::default());
 
@@ -54,7 +57,7 @@ fn falling_ball() {
 fn shape_dimensions() {
     let _guard = world_lock();
 
-    let mut world = World::new(&WorldDefinition::new());
+    let mut world = World::new(WorldDefinition::new());
 
     let body = world.create_body(&BodyDefinition::new());
     let rect = body.attach_rectangle(Vec2::new(3.0, 7.0), Vec2::ZERO, 0.0, &ShapeDefinition::default());
@@ -75,7 +78,7 @@ fn overlap_circle_respects_the_query_filter() {
     let _guard = world_lock();
     const CATEGORY: u64 = 0b10;
 
-    let mut world = World::new(&WorldDefinition::new());
+    let mut world = World::new(WorldDefinition::new());
 
     let body = world.create_body(&BodyDefinition::new());
     let shape = body.attach_circle(
@@ -100,7 +103,7 @@ fn overlap_circle_respects_the_query_filter() {
 fn contact_events_are_empty_before_stepping() {
     let _guard = world_lock();
 
-    let world = World::new(&WorldDefinition::new());
+    let world = World::new(WorldDefinition::new());
 
     assert_eq!(world.contact_events().count(), 0);
 }
@@ -109,7 +112,7 @@ fn contact_events_are_empty_before_stepping() {
 fn contact_events_report_touching_bodies() {
     let _guard = world_lock();
 
-    let mut world = World::new(&WorldDefinition::new());
+    let mut world = World::new(WorldDefinition::new());
     world.set_gravity(Vec2::new(0.0, -10.0));
 
     let shape_def = ShapeDefinition::new().enable_contact_events(true);
@@ -144,7 +147,10 @@ fn world_definition_is_applied() {
 
     // a gravity far stronger than the box2d default of -10, so that a world built from a default
     // definition could not produce this result
-    let mut world = World::new(&WorldDefinition::new().gravity(Vec2::new(0.0, -100.0)));
+    let mut world = World::new(WorldDefinition {
+        gravity: Vec2::new(0.0, -100.0),
+        ..WorldDefinition::new()
+    });
 
     let body = world.create_body(&BodyDefinition::new().kind(BodyKind::Dynamic));
     body.attach_circle(Vec2::ZERO, 1.0, &ShapeDefinition::new());

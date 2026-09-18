@@ -1,6 +1,6 @@
 use glam::Vec2;
 
-use crate::{BodyId, ShapeId};
+use crate::{BodyId, ShapeId, WorldDefinition};
 
 /// A physics world.
 ///
@@ -18,8 +18,10 @@ impl World {
     const SUBSTEPS: i32 = 4;
 
     /// Create a world for rigid body simulation.
-    pub fn new(world_definition: &WorldDefinition) -> Self {
-        let id = unsafe { sys::b2CreateWorld(&world_definition.0) };
+    pub fn new(world_definition: WorldDefinition) -> Self {
+        // safety: `WorldDefinition` is laid out exactly like `b2WorldDef` (checked at compile time
+        // where it is defined), so Box2D can read it in place -- nothing is copied or converted.
+        let id = unsafe { sys::b2CreateWorld(world_definition.as_b2()) };
         Self { id }
     }
 
@@ -178,96 +180,9 @@ impl Drop for World {
     }
 }
 
-/// A world definition holds all the data needed to construct a world.
-///
-/// You can safely re-use world definitions. World definitions are temporary objects used to
-/// bundle creation parameters.
-///
-/// **NOTE: several defaults here are scaled by the global length units, so
-/// [`set_length_units_per_meter`](crate::set_length_units_per_meter) must be called before you
-/// build a definition, not merely before you build a [`World`].**
-#[derive(Debug, Clone, Copy)]
-#[repr(transparent)]
-pub struct WorldDefinition(sys::b2WorldDef);
-
-impl WorldDefinition {
-    /// Creates a new WorldDefinition, which is used to create a world.
-    pub fn new() -> Self {
-        Self(unsafe { sys::b2DefaultWorldDef() })
-    }
-
-    /// Gravity vector. Box2D has no up-vector defined. Usually in m/s^2.
-    pub fn gravity(mut self, gravity: Vec2) -> Self {
-        self.0.gravity = gravity.into();
-        self
-    }
-
-    /// Restitution speed threshold, usually in m/s. Collisions above this speed have restitution
-    /// applied (will bounce).
-    pub fn restitution_threshold(mut self, restitution_threshold: f32) -> Self {
-        self.0.restitutionThreshold = restitution_threshold;
-        self
-    }
-
-    /// Threshold speed for hit events. Usually meters per second.
-    pub fn hit_event_threshold(mut self, hit_event_threshold: f32) -> Self {
-        self.0.hitEventThreshold = hit_event_threshold;
-        self
-    }
-
-    /// Contact stiffness. Cycles per second.
-    ///
-    /// Increasing this increases the speed of overlap recovery, but can introduce jitter.
-    pub fn contact_hertz(mut self, contact_hertz: f32) -> Self {
-        self.0.contactHertz = contact_hertz;
-        self
-    }
-
-    /// Contact bounciness. Non-dimensional.
-    ///
-    /// You can speed up overlap recovery by decreasing this with the trade-off that overlap
-    /// resolution becomes more energetic.
-    pub fn contact_damping_ratio(mut self, contact_damping_ratio: f32) -> Self {
-        self.0.contactDampingRatio = contact_damping_ratio;
-        self
-    }
-
-    /// This parameter controls how fast overlap is resolved and usually has units of meters per
-    /// second. This only puts a cap on the resolution speed. The resolution speed is increased by
-    /// increasing the hertz and/or decreasing the damping ratio.
-    pub fn max_contact_push_speed(mut self, max_contact_push_speed: f32) -> Self {
-        self.0.maxContactPushSpeed = max_contact_push_speed;
-        self
-    }
-
-    /// Maximum linear speed. Usually meters per second.
-    pub fn maximum_linear_speed(mut self, maximum_linear_speed: f32) -> Self {
-        self.0.maximumLinearSpeed = maximum_linear_speed;
-        self
-    }
-
-    /// Can bodies go to sleep to improve performance.
-    pub fn enable_sleep(mut self, enable_sleep: bool) -> Self {
-        self.0.enableSleep = enable_sleep;
-        self
-    }
-
-    /// Enable continuous collision.
-    pub fn enable_continuous(mut self, enable_continuous: bool) -> Self {
-        self.0.enableContinuous = enable_continuous;
-        self
-    }
-
-    /// Use this to store application specific world data.
-    pub fn user_data(mut self, user_data: u64) -> Self {
-        self.0.userData = user_data as _;
-        self
-    }
-}
-
-impl Default for WorldDefinition {
+impl Default for World {
     fn default() -> Self {
-        Self::new()
+        Self::new(WorldDefinition::default())
     }
 }
 

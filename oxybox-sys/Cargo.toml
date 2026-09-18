@@ -20,7 +20,6 @@ links = "box2d"
 
 [dependencies]
 glam.workspace = true
-static_assertions = "1.1.0"
 
 [build-dependencies]
 # note: cc had an annoying failure on macOS on 1.2.59, likely to be reverted in 1.2.60

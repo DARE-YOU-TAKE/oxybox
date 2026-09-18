@@ -1,12 +1,21 @@
 mod body_id;
+mod layout;
 mod render;
 mod shape_id;
 mod world;
+mod world_definition;
 
 pub use body_id::*;
 pub use render::{CircleDraw, DrawShapeCommand, PolygonDraw};
 pub use shape_id::*;
 pub use world::*;
+pub use world_definition::WorldDefinition;
+
+/// Handles and placeholders which have not been fully implemented. These are available
+/// if you need to name the type for some reason but access and definition is unstable.
+pub mod opaque {
+    pub use super::world_definition::{Internal, MixingCallbacks, TaskSystem};
+}
 
 pub use sys;
 
