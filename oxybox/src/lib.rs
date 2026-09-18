@@ -17,9 +17,9 @@ pub use sys;
 ///
 /// **NOTE: This is a global value -- Box2D does not support different unit lengths per-world.**
 ///
-/// **WARNING: This must be set before any other call into Box2D, including [`World::new`]. World
-/// creation bakes this value into its internal tuning, so setting it afterwards will not correct a
-/// world which already exists.**
+/// **WARNING: This should be set before any other call into Box2D. That includes
+/// [`WorldDefinition::new`] and [`BodyDefinition::new`], whose defaults are scaled by this value,
+/// not just [`World::new`].**
 pub fn set_length_units_per_meter(length_units: f32) {
     unsafe { sys::b2SetLengthUnitsPerMeter(length_units) }
 }

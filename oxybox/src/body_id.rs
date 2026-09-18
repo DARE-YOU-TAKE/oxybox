@@ -193,6 +193,9 @@ pub struct BodyDefinition(pub(crate) sys::b2BodyDef);
 
 impl BodyDefinition {
     /// Creates a new BodyDefinition for use in creating a body.
+    ///
+    /// Note that the default sleep threshold is scaled by the global length units, so
+    /// [`set_length_units_per_meter`](crate::set_length_units_per_meter) should be called first.
     pub fn new() -> Self {
         Self(unsafe { sys::b2DefaultBodyDef() })
     }
