@@ -46,7 +46,7 @@ fn falling_ball() {
     let (_ground, ball) = ground_and_ball(&mut world, &ShapeDefinition::default());
 
     for _ in 0..120 {
-        world.step(DT);
+        world.step(DT, World::SUB_STEPS);
     }
 
     let position = ball.position();
@@ -86,7 +86,7 @@ fn overlap_circle_respects_the_query_filter() {
         1.0,
         &ShapeDefinition::new().category(CATEGORY).mask(CATEGORY),
     );
-    world.step(DT);
+    world.step(DT, World::SUB_STEPS);
 
     // the default query has a category of 1, which this shape's mask excludes, so it must not
     // be reported even though it plainly overlaps
@@ -120,7 +120,7 @@ fn contact_events_report_touching_bodies() {
 
     let mut contacts = Vec::new();
     for _ in 0..120 {
-        world.step(DT);
+        world.step(DT, World::SUB_STEPS);
 
         // collected per step: the events belong to the step that just ran
         contacts = world.contact_events().collect();
@@ -154,7 +154,7 @@ fn world_definition_is_applied() {
 
     let body = world.create_body(&BodyDefinition::new().kind(BodyKind::Dynamic));
     body.attach_circle(Vec2::ZERO, 1.0, &ShapeDefinition::new());
-    world.step(DT);
+    world.step(DT, World::SUB_STEPS);
 
     let velocity = body.linear_velocity();
     assert!(

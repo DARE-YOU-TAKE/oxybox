@@ -15,7 +15,8 @@ pub struct World {
 }
 
 impl World {
-    const SUBSTEPS: i32 = 4;
+    /// The default number of sub_steps to do in [`World::step`].
+    pub const SUB_STEPS: u32 = 4;
 
     /// Create a world for rigid body simulation.
     pub fn new(world_definition: WorldDefinition) -> Self {
@@ -36,9 +37,11 @@ impl World {
     /// `delta_time` is the amount of time to simulate. This should be a fixed number, usually
     /// `1.0 / 60.0` -- a varying time step will make the simulation non-deterministic and can
     /// hurt stability.
-    pub fn step(&mut self, delta_time: f32) {
+    ///
+    /// `sub_steps`: Increasing the sub-step count can increase accuracy. Usually [`World::SUB_STEPS`]
+    pub fn step(&mut self, delta_time: f32, sub_steps: u32) {
         unsafe {
-            sys::b2World_Step(self.id, delta_time, Self::SUBSTEPS);
+            sys::b2World_Step(self.id, delta_time, sub_steps as i32);
         }
     }
 
