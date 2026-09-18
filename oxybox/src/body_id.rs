@@ -65,10 +65,10 @@ impl BodyId {
     }
 
     /// Set the world transform of a body. This acts as a teleport and is fairly expensive.
-    /// Generally you should create a body with then intended transform.
+    /// Generally you should create a body with the intended transform.
     ///
     /// `rotation` is in radians.
-    pub fn set_tranfsorm(&self, position: Vec2, rotation: f32) {
+    pub fn set_transform(&self, position: Vec2, rotation: f32) {
         unsafe {
             sys::b2Body_SetTransform(
                 self.0,
