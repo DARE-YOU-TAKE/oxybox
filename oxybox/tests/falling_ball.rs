@@ -1,6 +1,9 @@
 use glam::Vec2;
 use oxybox::*;
 
+/// A fixed time step, as every simulation should use.
+const DT: f32 = 1.0 / 60.0;
+
 /// Box2D keeps every world in one global array and claims slots without synchronization:
 /// `b2CreateWorld` scans for the first entry with `inUse == false` and sets it, and
 /// `b2DestroyWorld` clears it. Two threads doing that at once can claim the same slot, and one
@@ -17,16 +20,29 @@ fn world_lock() -> std::sync::MutexGuard<'static, ()> {
 }
 
 /// The ground sits with its top face at `y == 0`, so a ball of radius 5 comes to rest at `y == 5`.
-fn ground_and_ball(world: &mut World, shape_def: &ShapeDefinition) -> (BodyId, BodyId) {
-    let ground = world.create_body(&BodyDefinition::new().position(Vec2::new(0.0, -10.0)));
+fn ground_and_ball(world: &mut World, shape_def: ShapeDefinition) -> (BodyId, BodyId) {
+    let ground = world.create_body(BodyDefinition {
+        position: Vec2::new(0.0, -10.0),
+        ..BodyDefinition::new()
+    });
     ground.attach_rectangle(Vec2::new(50.0, 10.0), Vec2::ZERO, 0.0, shape_def);
 
-    let ball = world.create_body(
-        &BodyDefinition::new()
-            .position(Vec2::new(0.0, 20.0))
-            .kind(BodyKind::Dynamic),
+    let ball = world.create_body(BodyDefinition {
+        position: Vec2::new(0.0, 20.0),
+        kind: BodyKind::Dynamic,
+        ..BodyDefinition::new()
+    });
+    ball.attach_circle(
+        Vec2::ZERO,
+        5.0,
+        ShapeDefinition {
+            material: SurfaceMaterial {
+                restitution: 0.0,
+                ..shape_def.material
+            },
+            ..shape_def
+        },
     );
-    ball.attach_circle(Vec2::ZERO, 5.0, &shape_def.restitution(0.0));
 
     (ground, ball)
 }
@@ -35,13 +51,15 @@ fn ground_and_ball(world: &mut World, shape_def: &ShapeDefinition) -> (BodyId, B
 fn falling_ball() {
     let _guard = world_lock();
 
-    let mut world = World::new(1.0 / 60.0);
-    world.set_gravity(Vec2::new(0.0, -10.0));
+    let mut world = World::new(WorldDefinition {
+        gravity: Vec2::new(0.0, -10.0),
+        ..WorldDefinition::new()
+    });
 
-    let (_ground, ball) = ground_and_ball(&mut world, &ShapeDefinition::default());
+    let (_ground, ball) = ground_and_ball(&mut world, ShapeDefinition::default());
 
     for _ in 0..120 {
-        world.step();
+        world.step(DT, World::SUB_STEPS);
     }
 
     let position = ball.position();
@@ -52,11 +70,11 @@ fn falling_ball() {
 fn shape_dimensions() {
     let _guard = world_lock();
 
-    let mut world = World::new(1.0 / 60.0);
+    let mut world = World::new(WorldDefinition::new());
 
-    let body = world.create_body(&BodyDefinition::new());
-    let rect = body.attach_rectangle(Vec2::new(3.0, 7.0), Vec2::ZERO, 0.0, &ShapeDefinition::default());
-    let circle = body.attach_circle(Vec2::new(100.0, 100.0), 2.0, &ShapeDefinition::default());
+    let body = world.create_body(BodyDefinition::new());
+    let rect = body.attach_rectangle(Vec2::new(3.0, 7.0), Vec2::ZERO, 0.0, ShapeDefinition::default());
+    let circle = body.attach_circle(Vec2::new(100.0, 100.0), 2.0, ShapeDefinition::default());
 
     // half dimensions in, full dimensions out
     assert_eq!(rect.shape_kind(), ShapeKind::Polygon);
@@ -73,15 +91,22 @@ fn overlap_circle_respects_the_query_filter() {
     let _guard = world_lock();
     const CATEGORY: u64 = 0b10;
 
-    let mut world = World::new(1.0 / 60.0);
+    let mut world = World::new(WorldDefinition::new());
 
-    let body = world.create_body(&BodyDefinition::new());
+    let body = world.create_body(BodyDefinition::new());
     let shape = body.attach_circle(
         Vec2::ZERO,
         1.0,
-        &ShapeDefinition::new().category(CATEGORY).mask(CATEGORY),
+        ShapeDefinition {
+            filter: Filter {
+                category_bits: CATEGORY,
+                mask_bits: CATEGORY,
+                ..Filter::new()
+            },
+            ..ShapeDefinition::new()
+        },
     );
-    world.step();
+    world.step(DT, World::SUB_STEPS);
 
     // the default query has a category of 1, which this shape's mask excludes, so it must not
     // be reported even though it plainly overlaps
@@ -89,7 +114,10 @@ fn overlap_circle_respects_the_query_filter() {
     assert_eq!(hit, None, "shape was reported despite a non-matching filter");
 
     // a query that the shape's mask accepts finds it
-    let filter = QueryFilter::new().category(CATEGORY).mask(CATEGORY);
+    let filter = QueryFilter {
+        category_bits: CATEGORY,
+        mask_bits: CATEGORY,
+    };
     let hit = world.overlap_circle(Vec2::ZERO, 1.0, filter, |s| (s == shape).then_some(()));
     assert_eq!(hit, Some(()), "shape was not reported despite a matching filter");
 }
@@ -98,7 +126,7 @@ fn overlap_circle_respects_the_query_filter() {
 fn contact_events_are_empty_before_stepping() {
     let _guard = world_lock();
 
-    let world = World::new(1.0 / 60.0);
+    let world = World::new(WorldDefinition::new());
 
     assert_eq!(world.contact_events().count(), 0);
 }
@@ -107,15 +135,18 @@ fn contact_events_are_empty_before_stepping() {
 fn contact_events_report_touching_bodies() {
     let _guard = world_lock();
 
-    let mut world = World::new(1.0 / 60.0);
+    let mut world = World::new(WorldDefinition::new());
     world.set_gravity(Vec2::new(0.0, -10.0));
 
-    let shape_def = ShapeDefinition::new().enable_contact_events(true);
-    let (ground, ball) = ground_and_ball(&mut world, &shape_def);
+    let shape_def = ShapeDefinition {
+        enable_contact_events: true,
+        ..ShapeDefinition::new()
+    };
+    let (ground, ball) = ground_and_ball(&mut world, shape_def);
 
     let mut contacts = Vec::new();
     for _ in 0..120 {
-        world.step();
+        world.step(DT, World::SUB_STEPS);
 
         // collected per step: the events belong to the step that just ran
         contacts = world.contact_events().collect();
@@ -133,5 +164,50 @@ fn contact_events_report_touching_bodies() {
     assert!(
         (a == ground && b == ball) || (a == ball && b == ground),
         "unexpected contact pair: {a:?} / {b:?}"
+    );
+}
+
+#[test]
+fn names_reach_box2d() {
+    let _guard = world_lock();
+
+    let mut world = World::new(WorldDefinition::new());
+    let name = std::ffi::CString::new("player").unwrap();
+
+    let named = world.create_body(BodyDefinition {
+        name: Some(BodyName::new(&name)),
+        ..BodyDefinition::new()
+    });
+    let got = unsafe { std::ffi::CStr::from_ptr(sys::b2Body_GetName(named.into())) };
+    assert_eq!(got.to_str().unwrap(), "player");
+
+    // `None` must arrive as a null pointer, which Box2D stores as an empty name
+    let anonymous = world.create_body(BodyDefinition::new());
+    let got = unsafe { std::ffi::CStr::from_ptr(sys::b2Body_GetName(anonymous.into())) };
+    assert_eq!(got.to_str().unwrap(), "");
+}
+
+#[test]
+fn world_definition_is_applied() {
+    let _guard = world_lock();
+
+    // a gravity far stronger than the box2d default of -10, so that a world built from a default
+    // definition could not produce this result
+    let mut world = World::new(WorldDefinition {
+        gravity: Vec2::new(0.0, -100.0),
+        ..WorldDefinition::new()
+    });
+
+    let body = world.create_body(BodyDefinition {
+        kind: BodyKind::Dynamic,
+        ..BodyDefinition::new()
+    });
+    body.attach_circle(Vec2::ZERO, 1.0, ShapeDefinition::new());
+    world.step(DT, World::SUB_STEPS);
+
+    let velocity = body.linear_velocity();
+    assert!(
+        (velocity.y - (-100.0 * DT)).abs() < 1e-3,
+        "definition gravity was not applied: {velocity:?}"
     );
 }

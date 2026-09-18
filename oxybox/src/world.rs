@@ -1,5 +1,13 @@
 use glam::Vec2;
 
+mod overlap_stats;
+mod query_filter;
+mod world_definition;
+
+pub use overlap_stats::OverlapStats;
+pub use query_filter::QueryFilter;
+pub use world_definition::{MixingCallbacks, TaskSystem, WorldDefinition};
+
 use crate::{BodyId, ShapeId};
 
 /// A physics world.
@@ -12,28 +20,18 @@ use crate::{BodyId, ShapeId};
 #[derive(Debug)]
 pub struct World {
     pub(crate) id: sys::b2WorldId,
-    pub(crate) dt: f32,
-
-    
 }
 
 impl World {
-    const SUBSTEPS: i32 = 4;
+    /// The default number of sub_steps to do in [`World::step`].
+    pub const SUB_STEPS: u32 = 4;
 
     /// Create a world for rigid body simulation.
-    ///
-    /// `delta_time` is the amount of time to simulate when we call [`World::step`].
-    /// Usually `1.0 / 60.0`.
-    pub fn new(delta_time: f32) -> Self {
-        let id = unsafe { sys::b2CreateWorld(&sys::b2DefaultWorldDef()) };
-        Self { id, dt: delta_time }
-    }
-
-    /// The amount of time to simulate when we call [`World::step`].
-    ///
-    /// This should be a fixed number. Usually `1.0 / 60.0`.
-    pub fn dt(&self) -> f32 {
-        self.dt
+    pub fn new(world_definition: WorldDefinition) -> Self {
+        // safety: `WorldDefinition` is laid out exactly like `b2WorldDef` (checked at compile time
+        // where it is defined), so Box2D can read it in place -- nothing is copied or converted.
+        let id = unsafe { sys::b2CreateWorld(world_definition.as_b2()) };
+        Self { id }
     }
 
     /// The raw id of the world.
@@ -43,9 +41,15 @@ impl World {
 
     /// Simulate a world for one time step.
     /// This performs collision detection, integration, and constraint solution.
-    pub fn step(&mut self) {
+    ///
+    /// `delta_time` is the amount of time to simulate. This should be a fixed number, usually
+    /// `1.0 / 60.0` -- a varying time step will make the simulation non-deterministic and can
+    /// hurt stability.
+    ///
+    /// `sub_steps`: Increasing the sub-step count can increase accuracy. Usually [`World::SUB_STEPS`]
+    pub fn step(&mut self, delta_time: f32, sub_steps: u32) {
         unsafe {
-            sys::b2World_Step(self.id, self.dt, Self::SUBSTEPS);
+            sys::b2World_Step(self.id, delta_time, sub_steps as i32);
         }
     }
 
@@ -56,8 +60,10 @@ impl World {
     }
 
     /// Create a rigid body given a definition.
-    pub fn create_body(&mut self, body_definition: &crate::BodyDefinition) -> BodyId {
-        let body_id = unsafe { sys::b2CreateBody(self.id, &body_definition.0) };
+    pub fn create_body(&mut self, body_definition: crate::BodyDefinition) -> BodyId {
+        // safety: `BodyDefinition` is laid out exactly like `b2BodyDef` (checked at compile time
+        // where it is defined), so Box2D can read it in place -- nothing is copied or converted.
+        let body_id = unsafe { sys::b2CreateBody(self.id, body_definition.as_b2()) };
 
         BodyId::from_b2(body_id)
     }
@@ -135,7 +141,7 @@ impl World {
             sys::b2World_OverlapShape(
                 self.id,
                 &hit_circle,
-                filter.0,
+                filter.as_b2(),
                 Some(overlap_trampoline::<OverlapFn, R>),
                 &mut ctx as *mut OverlapCtx<OverlapFn, R> as *mut std::ffi::c_void,
             )
@@ -152,8 +158,8 @@ impl World {
     /// Get contact events for this current time step.
     ///
     /// Note that contact events are opt-in per shape: a shape must be created with
-    /// [`ShapeDefinition::enable_contact_events(true)`](crate::ShapeDefinition::enable_contact_events)
-    /// or it will never appear here. Box2D leaves this off by default.
+    /// [`ShapeDefinition::enable_contact_events`](crate::ShapeDefinition::enable_contact_events)
+    /// set to `true` or it will never appear here. Box2D leaves this off by default.
     pub fn contact_events(&self) -> impl Iterator<Item = (BodyId, BodyId)> + '_ {
         // safety: Box2D hands us its internal event buffer, which lives until the next step. The
         // buffer pointer is null when the world is locked, and a null pointer is not a valid empty
@@ -187,49 +193,8 @@ impl Drop for World {
     }
 }
 
-/// Limits which shapes a world query considers.
-///
-/// A shape is only reported by a query when the shape's category is in the query's mask *and* the
-/// query's category is in the shape's mask.
-#[derive(Debug, Clone, Copy)]
-#[repr(transparent)]
-pub struct QueryFilter(sys::b2QueryFilter);
-
-impl QueryFilter {
-    /// Creates a new QueryFilter which has a category of `1` and a mask of
-    /// every bit, which matches any shape left on the default [`ShapeDefinition`](crate::ShapeDefinition)
-    /// filter.
-    pub fn new() -> Self {
-        Self(unsafe { sys::b2DefaultQueryFilter() })
-    }
-
-    /// The collision category bits of this query. Normally you just set one bit.
-    pub fn category(mut self, category: u64) -> Self {
-        self.0.categoryBits = category;
-        self
-    }
-
-    /// The collision mask bits. This states the shape categories that this query would accept
-    /// for collision.
-    pub fn mask(mut self, mask: u64) -> Self {
-        self.0.maskBits = mask;
-        self
-    }
-}
-
-impl Default for QueryFilter {
+impl Default for World {
     fn default() -> Self {
-        Self::new()
+        Self::new(WorldDefinition::default())
     }
-}
-
-/// These are performance results returned by dynamic tree queries."]
-#[derive(Debug, Copy, Clone)]
-#[repr(C)]
-pub struct OverlapStats {
-    /// Number of internal nodes visited during the query"]
-    pub node_visits: i32,
-
-    /// Number of leaf nodes visited during the query"]
-    pub leaf_visits: i32,
 }
