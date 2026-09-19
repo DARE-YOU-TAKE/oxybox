@@ -1,6 +1,6 @@
 use glam::Vec2;
 
-use crate::BodyId;
+use crate::{BodyId, ShapeDefinition, ShapeKind};
 
 /// Shape id references a shape instance. This should be treated as an opaque handle.
 ///
@@ -88,11 +88,11 @@ impl ShapeId {
     /// Create a circle given a definition.
     ///
     /// The `center` is the local offset from the body, and the `radius` is the radius of the circle.
-    pub fn create_circle(body_id: BodyId, center: Vec2, radius: f32, shape_def: &ShapeDefinition) -> Self {
+    pub fn create_circle(body_id: BodyId, center: Vec2, radius: f32, shape_def: ShapeDefinition) -> Self {
         let shape_id = unsafe {
             sys::b2CreateCircleShape(
                 body_id.into(),
-                &shape_def.0,
+                shape_def.as_b2(),
                 &sys::b2Circle {
                     center: center.into(),
                     radius,
@@ -112,12 +112,12 @@ impl ShapeId {
         half_dims: Vec2,
         offset: Vec2,
         rotation: f32,
-        shape_def: &ShapeDefinition,
+        shape_def: ShapeDefinition,
     ) -> Self {
         let shape_id = unsafe {
             sys::b2CreatePolygonShape(
                 body_id.into(),
-                &shape_def.0,
+                shape_def.as_b2(),
                 &sys::b2MakeOffsetBox(
                     half_dims.x,
                     half_dims.y,
@@ -145,7 +145,7 @@ impl ShapeId {
     ///
     /// If a hull would be made empty, no polygon is attached.
     #[must_use]
-    pub fn create_polygon(body_id: BodyId, polygon_points: &[Vec2], shape_def: &ShapeDefinition) -> Option<Self> {
+    pub fn create_polygon(body_id: BodyId, polygon_points: &[Vec2], shape_def: ShapeDefinition) -> Option<Self> {
         if polygon_points.len() > Self::MAX_POLYGON_POINTS || polygon_points.len() < 3 {
             return None;
         }
@@ -162,7 +162,7 @@ impl ShapeId {
         }
 
         let shape_id =
-            unsafe { sys::b2CreatePolygonShape(body_id.into(), &shape_def.0, &sys::b2MakePolygon(&hull, 0.0)) };
+            unsafe { sys::b2CreatePolygonShape(body_id.into(), shape_def.as_b2(), &sys::b2MakePolygon(&hull, 0.0)) };
         Some(Self::from_b2(shape_id))
     }
 }
@@ -183,100 +183,4 @@ impl std::fmt::Debug for ShapeId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.pad(&format!("{}@{}v{}", self.0.world0, self.0.index1, self.0.generation))
     }
-}
-
-/// A shape definition holds all the data needed to construct a shape.
-///
-/// You can safely re-use shape definitions. Shapes are added to a body after construction.
-/// Shape definitions are temporary objects used to bundle creation parameters.
-#[derive(Debug, Clone, Copy)]
-#[repr(transparent)]
-pub struct ShapeDefinition(sys::b2ShapeDef);
-
-impl ShapeDefinition {
-    /// Creates a new ShapeDefinition, which is used to create a shape.
-    pub fn new() -> Self {
-        Self(unsafe { sys::b2DefaultShapeDef() })
-    }
-
-    /// The density, usually in kg/m^2.
-    ///
-    /// This is not part of the surface material because this is for the interior, which may have other considerations, such as
-    /// being hollow. For example a wood barrel may be hollow or full of water.
-    pub fn density(mut self, density: f32) -> Self {
-        self.0.density = density;
-        self
-    }
-
-    /// The collision category bits. Normally you would just set one bit as a bitflag.
-    ///
-    /// The category bits should represent your application object types.
-    pub fn category(mut self, category: u64) -> Self {
-        self.0.filter.categoryBits = category;
-        self
-    }
-
-    /// The collision mask bits. This states the categories that this shape would accept for collision.
-    ///
-    /// For example, you may want your player to only collide with static objects and other players.
-    pub fn mask(mut self, mask: u64) -> Self {
-        self.0.filter.maskBits = mask;
-        self
-    }
-
-    /// A sensor shape generates overlap events but never generates a collision response.
-    ///
-    /// Sensors do not have continuous collision. Instead, use a ray or shape cast for those scenarios.
-    /// Sensors still contribute to the body mass if they have non-zero density. Sensor events are disabled by default.
-    pub fn is_sensor(mut self, is_sensor: bool) -> Self {
-        self.0.isSensor = is_sensor;
-        self
-    }
-
-    /// Enable contact events for this shape.
-    ///
-    /// Only applies to kinematic and dynamic bodies. Ignored for sensors.
-    pub fn enable_contact_events(mut self, enable_contact_events: bool) -> Self {
-        self.0.enableContactEvents = enable_contact_events;
-        self
-    }
-
-    /// The coefficient of restitution (bounce) usually in the range `0.0..=1.0`.
-    ///
-    /// See [wikipedia](https://en.wikipedia.org/wiki/Coefficient_of_restitution).
-    pub fn restitution(mut self, restitution: f32) -> Self {
-        self.0.material.restitution = restitution;
-        self
-    }
-
-    /// The Coulomb (dry) friction coefficient, usually in the range `0.0..=1.0`.
-    pub fn friction(mut self, friction: f32) -> Self {
-        self.0.material.friction = friction;
-        self
-    }
-}
-
-impl Default for ShapeDefinition {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u32)]
-pub enum ShapeKind {
-    /// A circle with an offset
-    Circle = sys::b2ShapeType_b2_circleShape,
-
-    /// A capsule is an extruded circle
-    Capsule = sys::b2ShapeType_b2_capsuleShape,
-
-    /// A line segment
-    Segment = sys::b2ShapeType_b2_segmentShape,
-
-    /// A convex polygon. Often, this is a rectangle.
-    Polygon = sys::b2ShapeType_b2_polygonShape,
-
-    /// A line segment owned by a chain shape
-    ChainSegment = sys::b2ShapeType_b2_chainSegmentShape,
 }

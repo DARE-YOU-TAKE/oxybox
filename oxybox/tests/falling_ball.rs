@@ -20,7 +20,7 @@ fn world_lock() -> std::sync::MutexGuard<'static, ()> {
 }
 
 /// The ground sits with its top face at `y == 0`, so a ball of radius 5 comes to rest at `y == 5`.
-fn ground_and_ball(world: &mut World, shape_def: &ShapeDefinition) -> (BodyId, BodyId) {
+fn ground_and_ball(world: &mut World, shape_def: ShapeDefinition) -> (BodyId, BodyId) {
     let ground = world.create_body(BodyDefinition {
         position: Vec2::new(0.0, -10.0),
         ..BodyDefinition::new()
@@ -32,7 +32,17 @@ fn ground_and_ball(world: &mut World, shape_def: &ShapeDefinition) -> (BodyId, B
         kind: BodyKind::Dynamic,
         ..BodyDefinition::new()
     });
-    ball.attach_circle(Vec2::ZERO, 5.0, &shape_def.restitution(0.0));
+    ball.attach_circle(
+        Vec2::ZERO,
+        5.0,
+        ShapeDefinition {
+            material: SurfaceMaterial {
+                restitution: 0.0,
+                ..shape_def.material
+            },
+            ..shape_def
+        },
+    );
 
     (ground, ball)
 }
@@ -46,7 +56,7 @@ fn falling_ball() {
         ..WorldDefinition::new()
     });
 
-    let (_ground, ball) = ground_and_ball(&mut world, &ShapeDefinition::default());
+    let (_ground, ball) = ground_and_ball(&mut world, ShapeDefinition::default());
 
     for _ in 0..120 {
         world.step(DT, World::SUB_STEPS);
@@ -63,8 +73,8 @@ fn shape_dimensions() {
     let mut world = World::new(WorldDefinition::new());
 
     let body = world.create_body(BodyDefinition::new());
-    let rect = body.attach_rectangle(Vec2::new(3.0, 7.0), Vec2::ZERO, 0.0, &ShapeDefinition::default());
-    let circle = body.attach_circle(Vec2::new(100.0, 100.0), 2.0, &ShapeDefinition::default());
+    let rect = body.attach_rectangle(Vec2::new(3.0, 7.0), Vec2::ZERO, 0.0, ShapeDefinition::default());
+    let circle = body.attach_circle(Vec2::new(100.0, 100.0), 2.0, ShapeDefinition::default());
 
     // half dimensions in, full dimensions out
     assert_eq!(rect.shape_kind(), ShapeKind::Polygon);
@@ -87,7 +97,14 @@ fn overlap_circle_respects_the_query_filter() {
     let shape = body.attach_circle(
         Vec2::ZERO,
         1.0,
-        &ShapeDefinition::new().category(CATEGORY).mask(CATEGORY),
+        ShapeDefinition {
+            filter: Filter {
+                category_bits: CATEGORY,
+                mask_bits: CATEGORY,
+                ..Filter::new()
+            },
+            ..ShapeDefinition::new()
+        },
     );
     world.step(DT, World::SUB_STEPS);
 
@@ -118,8 +135,11 @@ fn contact_events_report_touching_bodies() {
     let mut world = World::new(WorldDefinition::new());
     world.set_gravity(Vec2::new(0.0, -10.0));
 
-    let shape_def = ShapeDefinition::new().enable_contact_events(true);
-    let (ground, ball) = ground_and_ball(&mut world, &shape_def);
+    let shape_def = ShapeDefinition {
+        enable_contact_events: true,
+        ..ShapeDefinition::new()
+    };
+    let (ground, ball) = ground_and_ball(&mut world, shape_def);
 
     let mut contacts = Vec::new();
     for _ in 0..120 {
@@ -159,7 +179,7 @@ fn world_definition_is_applied() {
         kind: BodyKind::Dynamic,
         ..BodyDefinition::new()
     });
-    body.attach_circle(Vec2::ZERO, 1.0, &ShapeDefinition::new());
+    body.attach_circle(Vec2::ZERO, 1.0, ShapeDefinition::new());
     world.step(DT, World::SUB_STEPS);
 
     let velocity = body.linear_velocity();

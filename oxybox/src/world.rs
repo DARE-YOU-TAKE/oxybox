@@ -158,8 +158,8 @@ impl World {
     /// Get contact events for this current time step.
     ///
     /// Note that contact events are opt-in per shape: a shape must be created with
-    /// [`ShapeDefinition::enable_contact_events(true)`](crate::ShapeDefinition::enable_contact_events)
-    /// or it will never appear here. Box2D leaves this off by default.
+    /// [`ShapeDefinition::enable_contact_events`](crate::ShapeDefinition::enable_contact_events)
+    /// set to `true` or it will never appear here. Box2D leaves this off by default.
     pub fn contact_events(&self) -> impl Iterator<Item = (BodyId, BodyId)> + '_ {
         // safety: Box2D hands us its internal event buffer, which lives until the next step. The
         // buffer pointer is null when the world is locked, and a null pointer is not a valid empty

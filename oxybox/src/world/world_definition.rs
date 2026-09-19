@@ -19,7 +19,7 @@ use crate::{mirrors_layout, opaque};
 ///
 /// **NOTE: several defaults here are scaled by the global length units, so
 /// [`set_length_units_per_meter`](crate::set_length_units_per_meter) must be called before you
-/// build a definition, not merely before you build a [`World`].**
+/// build a definition, not merely before you build a [`World`](crate::World).**
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct WorldDefinition {
@@ -72,7 +72,7 @@ pub struct WorldDefinition {
     /// Box2D stores this as a pointer-sized value, so this is a `usize` rather than a `u64`.
     pub user_data: usize,
 
-    /// Box2D's own validity cookie. See [`Internal`].
+    /// Box2D's own validity cookie.
     pub internal: opaque::Internal,
 }
 

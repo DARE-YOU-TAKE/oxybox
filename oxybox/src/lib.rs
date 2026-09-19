@@ -1,13 +1,13 @@
 mod body;
 mod render;
 mod rotation;
-mod shape_id;
+mod shape;
 mod world;
 
 pub use body::{BodyDefinition, BodyId, BodyKind};
 pub use render::{CircleDraw, DrawShapeCommand, PolygonDraw};
 pub use rotation::Rotation;
-pub use shape_id::*;
+pub use shape::*;
 pub use world::{OverlapStats, QueryFilter, World, WorldDefinition};
 
 /// Handles and placeholders which have not been fully implemented. These are available

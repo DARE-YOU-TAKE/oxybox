@@ -130,7 +130,7 @@ impl BodyId {
     /// Attaches a circle to the body.
     ///
     /// The `center` is the local offset from the body, and the `radius` is the radius of the circle.
-    pub fn attach_circle(self, center: Vec2, radius: f32, shape_def: &ShapeDefinition) -> ShapeId {
+    pub fn attach_circle(self, center: Vec2, radius: f32, shape_def: ShapeDefinition) -> ShapeId {
         ShapeId::create_circle(self, center, radius, shape_def)
     }
 
@@ -139,13 +139,7 @@ impl BodyId {
     /// Make a box (rectangle) polygon, bypassing the need for a convex hull.
     /// `half_dims` are the half dimensions of the rectangle, `offset` is the offset relative to the body,
     /// and `rotation` is the rotation amount in radians.
-    pub fn attach_rectangle(
-        self,
-        half_dims: Vec2,
-        offset: Vec2,
-        rotation: f32,
-        shape_def: &ShapeDefinition,
-    ) -> ShapeId {
+    pub fn attach_rectangle(self, half_dims: Vec2, offset: Vec2, rotation: f32, shape_def: ShapeDefinition) -> ShapeId {
         ShapeId::create_rectangle(self, half_dims, offset, rotation, shape_def)
     }
 
@@ -160,7 +154,7 @@ impl BodyId {
     /// We weld close points and remove collinear points.
     ///
     /// If a hull would be made empty, no polygon is attached.
-    pub fn attach_polygon(self, polygon_points: &[Vec2], shape_def: &ShapeDefinition) -> Option<ShapeId> {
+    pub fn attach_polygon(self, polygon_points: &[Vec2], shape_def: ShapeDefinition) -> Option<ShapeId> {
         ShapeId::create_polygon(self, polygon_points, shape_def)
     }
 }
