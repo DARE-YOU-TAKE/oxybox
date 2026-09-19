@@ -4,7 +4,7 @@ mod rotation;
 mod shape;
 mod world;
 
-pub use body::{BodyDefinition, BodyId, BodyKind, BodyName};
+pub use body::{Body, BodyDefinition, BodyId, BodyKind, BodyName, BodyRef};
 pub use render::{CircleDraw, DrawShapeCommand, PolygonDraw};
 pub use rotation::Rotation;
 pub use shape::*;

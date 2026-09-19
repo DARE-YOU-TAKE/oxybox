@@ -1,3 +1,5 @@
+use std::{cell::Cell, marker::PhantomData};
+
 use glam::Vec2;
 
 mod overlap_stats;
@@ -8,18 +10,20 @@ pub use overlap_stats::OverlapStats;
 pub use query_filter::QueryFilter;
 pub use world_definition::{MixingCallbacks, TaskSystem, WorldDefinition};
 
-use crate::{BodyId, ShapeId};
+use crate::{Body, BodyId, Shape, ShapeId, ShapeRef};
 
 /// A physics world.
 ///
 /// A world contains bodies, shapes, and constraints. You make create up to 128 worlds.
 /// Each world is completely independent and may be simulated in parallel.
-///
-/// Dropping a world destroys it, along with every body and shape inside it. Any [`BodyId`]
-/// or [`ShapeId`] taken from a world is left dangling once that world is dropped.
 #[derive(Debug)]
 pub struct World {
     pub(crate) id: sys::b2WorldId,
+
+    /// Box2D does not synchronize access to a world, and every method here takes `&self`, so two
+    /// threads sharing a `&World` could race inside Box2D. This makes `World` `!Sync` while
+    /// leaving it `Send`, since moving a whole world between threads is fine.
+    not_sync: PhantomData<Cell<()>>,
 }
 
 impl World {
@@ -28,10 +32,12 @@ impl World {
 
     /// Create a world for rigid body simulation.
     pub fn new(world_definition: WorldDefinition) -> Self {
-        // safety: `WorldDefinition` is laid out exactly like `b2WorldDef` (checked at compile time
-        // where it is defined), so Box2D can read it in place -- nothing is copied or converted.
+        // safety: `WorldDefinition` is laid out exactly like `b2WorldDef`
         let id = unsafe { sys::b2CreateWorld(world_definition.as_b2()) };
-        Self { id }
+        Self {
+            id,
+            not_sync: PhantomData,
+        }
     }
 
     /// The raw id of the world.
@@ -55,17 +61,17 @@ impl World {
 
     /// Set the gravity vector for the entire world. Box2D has no concept of an up direction and
     /// this is left as a decision for the application. Usually in m/s^2.
-    pub fn set_gravity(&mut self, gravity: Vec2) {
+    pub fn set_gravity(&self, gravity: Vec2) {
         unsafe { sys::b2World_SetGravity(self.id, gravity.into()) }
     }
 
     /// Create a rigid body given a definition.
-    pub fn create_body(&mut self, body_definition: crate::BodyDefinition) -> BodyId {
+    pub fn create_body(&self, body_definition: crate::BodyDefinition) -> Body<'_> {
         // safety: `BodyDefinition` is laid out exactly like `b2BodyDef` (checked at compile time
         // where it is defined), so Box2D can read it in place -- nothing is copied or converted.
         let body_id = unsafe { sys::b2CreateBody(self.id, body_definition.as_b2()) };
 
-        BodyId::from_b2(body_id)
+        Body::new(BodyId::from_b2(body_id))
     }
 
     /// Overlap test for circles.
@@ -76,14 +82,14 @@ impl World {
     /// Only shapes which pass `filter` are considered -- see [`QueryFilter`].
     /// If query stats are desired, call [`World::overlap_circle_with_stats`].
     pub fn overlap_circle<OverlapFn, R>(
-        &self,
+        &mut self,
         circle_position: Vec2,
         radius: f32,
         filter: QueryFilter,
         overlap: OverlapFn,
     ) -> Option<R>
     where
-        OverlapFn: FnMut(ShapeId) -> Option<R>,
+        OverlapFn: FnMut(ShapeRef<'_>) -> Option<R>,
     {
         self.overlap_circle_with_stats(circle_position, radius, filter, overlap)
             .1
@@ -96,14 +102,14 @@ impl World {
     ///
     /// Only shapes which pass `filter` are considered -- see [`QueryFilter`].
     pub fn overlap_circle_with_stats<OverlapFn, R>(
-        &self,
+        &mut self,
         circle_position: Vec2,
         radius: f32,
         filter: QueryFilter,
         overlap: OverlapFn,
     ) -> (OverlapStats, Option<R>)
     where
-        OverlapFn: FnMut(ShapeId) -> Option<R>,
+        OverlapFn: FnMut(ShapeRef<'_>) -> Option<R>,
     {
         // safety: we are copying all data and we know that glam::Vec2 is the exact same as b2Vec2 so we
         // can make a pointer to it. Additionally, it survives this function entirely.
@@ -118,15 +124,17 @@ impl World {
 
         extern "C" fn overlap_trampoline<OverlapFn, R>(shape: sys::b2ShapeId, cback: *mut std::ffi::c_void) -> bool
         where
-            OverlapFn: FnMut(ShapeId) -> Option<R>,
+            OverlapFn: FnMut(ShapeRef<'_>) -> Option<R>,
         {
             // safety: Rust's type system promises that this is the same type of context
             // which we are passing. We *are* passing this context as an `&mut OverlapCtx<OverlapFn, R>`
             // when we call `sys::b2World_OverlapShape`
             let ctx: &mut OverlapCtx<OverlapFn, R> = unsafe { &mut *(cback as *mut OverlapCtx<OverlapFn, R>) };
 
-            // call the guy! stop iterating (return false) once we have a result
-            match (ctx.overlap)(ShapeId::from_b2(shape)) {
+            // Box2D only hands the callback shapes it just found in the tree, so this one is live,
+            // and the world outlives the query it is running inside of.
+            let shape_ref = ShapeRef::new(ShapeId::from_b2(shape));
+            match (ctx.overlap)(shape_ref) {
                 Some(r) => {
                     ctx.result = Some(r);
                     false
@@ -184,6 +192,42 @@ impl World {
                 ))
             }
         })
+    }
+
+    /// Gets a given [`Shape`] from an existing [`ShapeId`].
+    ///
+    /// Returns `None` if the shape has been destroyed, or belongs to a different world.
+    pub fn shape(&self, shape_id: ShapeId) -> Option<Shape<'_>> {
+        self.owns_shape(shape_id).then(|| Shape::new(shape_id))
+    }
+
+    /// Gets a given [`Body`] from an existing [`BodyId`].
+    ///
+    /// Returns `None` if the body has been destroyed, or belongs to a different world.
+    pub fn body(&self, body_id: BodyId) -> Option<Body<'_>> {
+        self.owns_body(body_id).then(|| Body::new(body_id))
+    }
+
+    /// Destroy a rigid body. This destroys all shapes and joints attached to the body.
+    ///
+    /// Returns `false` if the body was already destroyed, or belongs to a different world.
+    pub fn destroy_body(&mut self, body_id: BodyId) -> bool {
+        if !self.owns_body(body_id) {
+            return false;
+        }
+
+        unsafe { sys::b2DestroyBody(body_id.0) };
+        true
+    }
+
+    /// Whether `body_id` names a live body in *this* world.
+    pub fn owns_body(&self, body_id: BodyId) -> bool {
+        self.id.index1.wrapping_sub(1) == body_id.0.world0 && body_id.is_valid()
+    }
+
+    /// Whether `shape_id` names a live shape in *this* world.
+    pub fn owns_shape(&self, shape_id: ShapeId) -> bool {
+        self.id.index1.wrapping_sub(1) == shape_id.0.world0 && shape_id.is_valid()
     }
 }
 
