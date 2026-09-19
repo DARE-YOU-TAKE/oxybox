@@ -1,6 +1,6 @@
 use glam::Vec2;
 
-use crate::layout::mirrors_layout;
+use crate::{mirrors_layout, opaque};
 
 /// A world definition holds all the data needed to construct a world.
 ///
@@ -73,7 +73,7 @@ pub struct WorldDefinition {
     pub user_data: usize,
 
     /// Box2D's own validity cookie. See [`Internal`].
-    pub internal: Internal,
+    pub internal: opaque::Internal,
 }
 
 /// Box2D's optional mixing callbacks for friction and restitution.
@@ -87,15 +87,6 @@ pub struct MixingCallbacks([u8; 16]);
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct TaskSystem([u8; 24]);
-
-/// The cookie Box2D stamps into a definition so that it can reject one you never initialized.
-///
-/// This cannot be constructed manually.
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-pub struct Internal {
-    internal_value: std::os::raw::c_int,
-}
 
 mirrors_layout! {
     WorldDefinition => sys::b2WorldDef {

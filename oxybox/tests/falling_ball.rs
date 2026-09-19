@@ -21,14 +21,17 @@ fn world_lock() -> std::sync::MutexGuard<'static, ()> {
 
 /// The ground sits with its top face at `y == 0`, so a ball of radius 5 comes to rest at `y == 5`.
 fn ground_and_ball(world: &mut World, shape_def: &ShapeDefinition) -> (BodyId, BodyId) {
-    let ground = world.create_body(&BodyDefinition::new().position(Vec2::new(0.0, -10.0)));
+    let ground = world.create_body(BodyDefinition {
+        position: Vec2::new(0.0, -10.0),
+        ..BodyDefinition::new()
+    });
     ground.attach_rectangle(Vec2::new(50.0, 10.0), Vec2::ZERO, 0.0, shape_def);
 
-    let ball = world.create_body(
-        &BodyDefinition::new()
-            .position(Vec2::new(0.0, 20.0))
-            .kind(BodyKind::Dynamic),
-    );
+    let ball = world.create_body(BodyDefinition {
+        position: Vec2::new(0.0, 20.0),
+        kind: BodyKind::Dynamic,
+        ..BodyDefinition::new()
+    });
     ball.attach_circle(Vec2::ZERO, 5.0, &shape_def.restitution(0.0));
 
     (ground, ball)
@@ -59,7 +62,7 @@ fn shape_dimensions() {
 
     let mut world = World::new(WorldDefinition::new());
 
-    let body = world.create_body(&BodyDefinition::new());
+    let body = world.create_body(BodyDefinition::new());
     let rect = body.attach_rectangle(Vec2::new(3.0, 7.0), Vec2::ZERO, 0.0, &ShapeDefinition::default());
     let circle = body.attach_circle(Vec2::new(100.0, 100.0), 2.0, &ShapeDefinition::default());
 
@@ -80,7 +83,7 @@ fn overlap_circle_respects_the_query_filter() {
 
     let mut world = World::new(WorldDefinition::new());
 
-    let body = world.create_body(&BodyDefinition::new());
+    let body = world.create_body(BodyDefinition::new());
     let shape = body.attach_circle(
         Vec2::ZERO,
         1.0,
@@ -152,7 +155,10 @@ fn world_definition_is_applied() {
         ..WorldDefinition::new()
     });
 
-    let body = world.create_body(&BodyDefinition::new().kind(BodyKind::Dynamic));
+    let body = world.create_body(BodyDefinition {
+        kind: BodyKind::Dynamic,
+        ..BodyDefinition::new()
+    });
     body.attach_circle(Vec2::ZERO, 1.0, &ShapeDefinition::new());
     world.step(DT, World::SUB_STEPS);
 

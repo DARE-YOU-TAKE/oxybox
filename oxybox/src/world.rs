@@ -52,8 +52,10 @@ impl World {
     }
 
     /// Create a rigid body given a definition.
-    pub fn create_body(&mut self, body_definition: &crate::BodyDefinition) -> BodyId {
-        let body_id = unsafe { sys::b2CreateBody(self.id, &body_definition.0) };
+    pub fn create_body(&mut self, body_definition: crate::BodyDefinition) -> BodyId {
+        // safety: `BodyDefinition` is laid out exactly like `b2BodyDef` (checked at compile time
+        // where it is defined), so Box2D can read it in place -- nothing is copied or converted.
+        let body_id = unsafe { sys::b2CreateBody(self.id, body_definition.as_b2()) };
 
         BodyId::from_b2(body_id)
     }
