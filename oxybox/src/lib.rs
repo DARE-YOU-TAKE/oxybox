@@ -3,20 +3,18 @@ mod render;
 mod rotation;
 mod shape_id;
 mod world;
-mod world_definition;
 
 pub use body::{BodyDefinition, BodyId, BodyKind};
 pub use render::{CircleDraw, DrawShapeCommand, PolygonDraw};
 pub use rotation::Rotation;
 pub use shape_id::*;
-pub use world::*;
-pub use world_definition::WorldDefinition;
+pub use world::{OverlapStats, QueryFilter, World, WorldDefinition};
 
 /// Handles and placeholders which have not been fully implemented. These are available
 /// if you need to name the type for some reason but access and definition is unstable.
 pub mod opaque {
     pub use super::body::BodyName;
-    pub use super::world_definition::{MixingCallbacks, TaskSystem};
+    pub use super::world::{MixingCallbacks, TaskSystem};
 
     /// The cookie Box2D stamps into a definition so that it can reject one you never initialized.
     ///
