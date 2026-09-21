@@ -14,8 +14,14 @@ use crate::{Body, BodyId, Shape, ShapeId, ShapeRef};
 
 /// A physics world.
 ///
-/// A world contains bodies, shapes, and constraints. You make create up to 128 worlds.
-/// Each world is completely independent and may be simulated in parallel.
+/// A world contains bodies, shapes, and constraints. You may create up to 128
+/// worlds. Each world is completely independent and may be simulated in parallel.
+///
+/// # Thread safety
+///
+/// A `World` is [`Send`] but not [`Sync`]: one may be moved to another thread and simulated
+/// there, and two worlds may be stepped in parallel, but a single world must only ever be touched
+/// by one thread at a time.
 #[derive(Debug)]
 pub struct World {
     pub(crate) id: sys::b2WorldId,
@@ -31,12 +37,28 @@ impl World {
     pub const SUB_STEPS: u32 = 4;
 
     /// Create a world for rigid body simulation.
+    ///
+    /// # Panics
+    ///
+    /// Panics if more than 128 worlds exist at once. You can use [`World::try_new`] to handle
+    /// this panic manually.
     pub fn new(world_definition: WorldDefinition) -> Self {
+        Self::try_new(world_definition).unwrap()
+    }
+
+    /// Create a world for rigid body simulation.
+    pub fn try_new(world_definition: WorldDefinition) -> Result<Self, TooManyWorlds> {
         // safety: `WorldDefinition` is laid out exactly like `b2WorldDef`
         let id = unsafe { sys::b2CreateWorld(world_definition.as_b2()) };
-        Self {
-            id,
-            not_sync: PhantomData,
+
+        let is_valid = unsafe { sys::b2World_IsValid(id) };
+        if is_valid {
+            Ok(Self {
+                id,
+                not_sync: PhantomData,
+            })
+        } else {
+            Err(TooManyWorlds)
         }
     }
 
@@ -221,11 +243,21 @@ impl World {
     }
 
     /// Whether `body_id` names a live body in *this* world.
+    ///
+    /// If you make and destroy a world, the old body ids from the past world may overlap
+    /// (ie, break the A-B-A problem) from bodies in the new world -- Box2d only exposes world
+    /// slot index, but not generation data. If you never or rarely delete worlds, you don't have
+    /// to worry about it.
     pub fn owns_body(&self, body_id: BodyId) -> bool {
         self.id.index1.wrapping_sub(1) == body_id.0.world0 && body_id.is_valid()
     }
 
     /// Whether `shape_id` names a live shape in *this* world.
+    ///
+    /// If you make and destroy a world, the old shape ids from the past world may overlap
+    /// (ie, break the A-B-A problem) from shapes in the new world -- Box2d only exposes world
+    /// slot index, but not generation data. If you never or rarely delete worlds, you don't have
+    /// to worry about it.
     pub fn owns_shape(&self, shape_id: ShapeId) -> bool {
         self.id.index1.wrapping_sub(1) == shape_id.0.world0 && shape_id.is_valid()
     }
@@ -242,3 +274,7 @@ impl Default for World {
         Self::new(WorldDefinition::default())
     }
 }
+
+#[derive(Debug, thiserror::Error)]
+#[error("could not make new world; only 128 may exist at once")]
+pub struct TooManyWorlds;

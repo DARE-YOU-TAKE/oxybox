@@ -190,6 +190,7 @@ impl<'a> Body<'a> {
     /// We weld close points and remove collinear points.
     ///
     /// If a hull would be made empty, no polygon is attached.
+    #[must_use = "a degenerate hull attaches no polygon, leaving the body without this collider"]
     pub fn attach_polygon(&self, polygon_points: &[Vec2], shape_def: ShapeDefinition) -> Option<Shape<'a>> {
         if polygon_points.len() > ShapeId::MAX_POLYGON_POINTS || polygon_points.len() < 3 {
             return None;

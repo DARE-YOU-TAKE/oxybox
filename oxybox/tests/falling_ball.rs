@@ -343,3 +343,12 @@ fn sibling_shape_handles_coexist() {
     // and the handles taken at attach time are still the live ones
     assert_eq!(world.shape(left).unwrap().id(), left);
 }
+
+#[test]
+fn creating_too_many_worlds_panics() {
+    let _guard = world_lock();
+
+    let wd = WorldDefinition::new();
+    let _worlds: [World; 128] = std::array::from_fn(|_| World::new(wd));
+    assert!(World::try_new(wd).is_err());
+}

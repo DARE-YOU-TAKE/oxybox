@@ -11,3 +11,4 @@ readme = "../README.md"
 glam.workspace = true
 
 sys = { package = "oxybox-sys", version = "0.1.0", path = "../oxybox-sys" }
+thiserror = "2.0.20"
