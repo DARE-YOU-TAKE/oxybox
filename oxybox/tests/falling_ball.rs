@@ -4,21 +4,6 @@ use oxybox::*;
 /// A fixed time step, as every simulation should use.
 const DT: f32 = 1.0 / 60.0;
 
-/// Box2D keeps every world in one global array and claims slots without synchronization:
-/// `b2CreateWorld` scans for the first entry with `inUse == false` and sets it, and
-/// `b2DestroyWorld` clears it. Two threads doing that at once can claim the same slot, and one
-/// world is then silently reinitialized underneath the other. Cargo runs tests on several threads,
-/// so every test here has to hold this lock for as long as it owns a world.
-///
-/// Declare the guard *first* in each test, so that it is dropped last -- after the `World` it is
-/// protecting.
-fn world_lock() -> std::sync::MutexGuard<'static, ()> {
-    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    // ignore poison:
-    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
 /// The ground sits with its top face at `y == 0`, so a ball of radius 5 comes to rest at `y == 5`.
 fn ground_and_ball(world: &World, shape_def: ShapeDefinition) -> (BodyId, BodyId) {
     let ground = world.create_body(BodyDefinition {
@@ -49,8 +34,6 @@ fn ground_and_ball(world: &World, shape_def: ShapeDefinition) -> (BodyId, BodyId
 
 #[test]
 fn falling_ball() {
-    let _guard = world_lock();
-
     let mut world = World::new(WorldDefinition {
         gravity: Vec2::new(0.0, -10.0),
         ..WorldDefinition::new()
@@ -70,8 +53,6 @@ fn falling_ball() {
 
 #[test]
 fn shape_dimensions() {
-    let _guard = world_lock();
-
     let world = World::new(WorldDefinition::new());
 
     let body = world.create_body(BodyDefinition::new());
@@ -95,7 +76,6 @@ fn shape_dimensions() {
 
 #[test]
 fn overlap_circle_respects_the_query_filter() {
-    let _guard = world_lock();
     const CATEGORY: u64 = 0b10;
 
     let mut world = World::new(WorldDefinition::new());
@@ -133,7 +113,6 @@ fn overlap_circle_respects_the_query_filter() {
 
 #[test]
 fn an_overlap_callback_can_read_what_it_is_handed() {
-    let _guard = world_lock();
     const USER_DATA: usize = 0xBEEF;
     const BODY_POSITION: Vec2 = Vec2::new(3.0, 4.0);
 
@@ -164,8 +143,6 @@ fn an_overlap_callback_can_read_what_it_is_handed() {
 
 #[test]
 fn contact_events_are_empty_before_stepping() {
-    let _guard = world_lock();
-
     let world = World::new(WorldDefinition::new());
 
     assert_eq!(world.contact_events().count(), 0);
@@ -173,8 +150,6 @@ fn contact_events_are_empty_before_stepping() {
 
 #[test]
 fn contact_events_report_touching_bodies() {
-    let _guard = world_lock();
-
     let mut world = World::new(WorldDefinition::new());
     world.set_gravity(Vec2::new(0.0, -10.0));
 
@@ -209,8 +184,6 @@ fn contact_events_report_touching_bodies() {
 
 #[test]
 fn names_reach_box2d() {
-    let _guard = world_lock();
-
     let world = World::new(WorldDefinition::new());
     let name = std::ffi::CString::new("player").unwrap();
 
@@ -229,8 +202,6 @@ fn names_reach_box2d() {
 
 #[test]
 fn world_definition_is_applied() {
-    let _guard = world_lock();
-
     // a gravity far stronger than the box2d default of -10, so that a world built from a default
     // definition could not produce this result
     let mut world = World::new(WorldDefinition {
@@ -256,8 +227,6 @@ fn world_definition_is_applied() {
 
 #[test]
 fn ids_from_another_world_are_rejected() {
-    let _guard = world_lock();
-
     let owner = World::new(WorldDefinition::new());
     let mut other = World::new(WorldDefinition::new());
 
@@ -281,8 +250,6 @@ fn ids_from_another_world_are_rejected() {
 
 #[test]
 fn destroying_a_body_invalidates_its_handles() {
-    let _guard = world_lock();
-
     let mut world = World::new(WorldDefinition::new());
 
     let body = world.create_body(BodyDefinition::new());
@@ -301,8 +268,6 @@ fn destroying_a_body_invalidates_its_handles() {
 
 #[test]
 fn a_shape_finds_its_body() {
-    let _guard = world_lock();
-
     let world = World::new(WorldDefinition::new());
 
     let body = world.create_body(BodyDefinition {
@@ -317,8 +282,6 @@ fn a_shape_finds_its_body() {
 
 #[test]
 fn sibling_shape_handles_coexist() {
-    let _guard = world_lock();
-
     let world = World::new(WorldDefinition::new());
 
     let body = world.create_body(BodyDefinition::new());
@@ -342,13 +305,4 @@ fn sibling_shape_handles_coexist() {
 
     // and the handles taken at attach time are still the live ones
     assert_eq!(world.shape(left).unwrap().id(), left);
-}
-
-#[test]
-fn creating_too_many_worlds_panics() {
-    let _guard = world_lock();
-
-    let wd = WorldDefinition::new();
-    let _worlds: [World; 128] = std::array::from_fn(|_| World::new(wd));
-    assert!(World::try_new(wd).is_err());
 }

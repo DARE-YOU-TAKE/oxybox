@@ -1,4 +1,8 @@
-use std::{cell::Cell, marker::PhantomData};
+use std::{
+    cell::Cell,
+    marker::PhantomData,
+    sync::{Mutex, MutexGuard},
+};
 
 use glam::Vec2;
 
@@ -12,6 +16,19 @@ pub use world_definition::{MixingCallbacks, TaskSystem, WorldDefinition};
 
 use crate::{Body, BodyId, Shape, ShapeId, ShapeRef};
 
+/// Box2D keeps every world in one global array and claims slots without synchronization:
+/// `b2CreateWorld` scans for the first entry with `inUse == false` and sets it, and
+/// `b2DestroyWorld` clears it. Two threads doing that at once can claim the same slot, and one
+/// world is then silently reinitialized underneath the other. Every world creation and
+/// destruction holds this lock.
+static WORLD_LOCK: Mutex<()> = Mutex::new(());
+
+pub(crate) fn world_lock() -> MutexGuard<'static, ()> {
+    // the lock guards no data, so a poisoned lock has nothing broken to report -- and this is
+    // taken in `World::drop`, which must not panic.
+    WORLD_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// A physics world.
 ///
 /// A world contains bodies, shapes, and constraints. You may create up to 128
@@ -21,7 +38,13 @@ use crate::{Body, BodyId, Shape, ShapeId, ShapeRef};
 ///
 /// A `World` is [`Send`] but not [`Sync`]: one may be moved to another thread and simulated
 /// there, and two worlds may be stepped in parallel, but a single world must only ever be touched
-/// by one thread at a time.
+/// by one thread at a time. Worlds may be created and dropped from any number of threads at once.
+///
+/// We allocate a global mutex which we use to sync World creation, since Box2D stores Worlds in its own
+/// global array. This prevents making two Worlds at once on two different threads, which may both be assigned
+/// to the same location in memory, leading to UB later. This mutex is only accessed on World creation and
+/// when World drops, so if you only make one World and only drop it at the end of the program's life, then
+/// this mutex will not be a serious concern.
 #[derive(Debug)]
 pub struct World {
     pub(crate) id: sys::b2WorldId,
@@ -48,6 +71,8 @@ impl World {
 
     /// Create a world for rigid body simulation.
     pub fn try_new(world_definition: WorldDefinition) -> Result<Self, TooManyWorlds> {
+        let _guard = world_lock();
+
         // safety: `WorldDefinition` is laid out exactly like `b2WorldDef`
         let id = unsafe { sys::b2CreateWorld(world_definition.as_b2()) };
 
@@ -265,6 +290,9 @@ impl World {
 
 impl Drop for World {
     fn drop(&mut self) {
+        // Box2D frees the world's slot here, which would race another thread claiming one
+        let _guard = world_lock();
+
         unsafe { sys::b2DestroyWorld(self.id) }
     }
 }

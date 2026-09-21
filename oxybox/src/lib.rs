@@ -8,7 +8,7 @@ pub use body::{Body, BodyDefinition, BodyId, BodyKind, BodyName, BodyRef};
 pub use render::{CircleDraw, DrawShapeCommand, PolygonDraw};
 pub use rotation::Rotation;
 pub use shape::*;
-pub use world::{OverlapStats, QueryFilter, World, WorldDefinition};
+pub use world::{OverlapStats, QueryFilter, TooManyWorlds, World, WorldDefinition};
 
 /// Handles and placeholders which have not been fully implemented. These are available
 /// if you need to name the type for some reason but access and definition is unstable.
@@ -38,6 +38,7 @@ pub use sys;
 /// [`WorldDefinition::new`] and [`BodyDefinition::new`], whose defaults are scaled by this value,
 /// not just [`World::new`].**
 pub fn set_length_units_per_meter(length_units: f32) {
+    let _guard = world::world_lock();
     unsafe { sys::b2SetLengthUnitsPerMeter(length_units) }
 }
 
