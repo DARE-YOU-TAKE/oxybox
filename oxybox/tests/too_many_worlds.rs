@@ -1,5 +1,4 @@
-//! Kept in its own test binary: it holds every world slot Box2D has, which would make any test
-//! running alongside it fail to create a world. Cargo runs test binaries one at a time.
+//! Kept in its own test binary to test the global state.
 
 use oxybox::*;
 

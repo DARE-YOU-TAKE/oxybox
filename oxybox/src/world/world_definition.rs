@@ -127,3 +127,37 @@ impl Default for WorldDefinition {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use glam::Vec2;
+
+    use crate::*;
+
+    const DT: f32 = 1.0 / 60.0;
+
+    #[test]
+    fn world_definition_is_applied() {
+        // a gravity far stronger than the box2d default of -10, so that a world built from a default
+        // definition could not produce this result
+        let mut world = World::new(WorldDefinition {
+            gravity: Vec2::new(0.0, -100.0),
+            ..WorldDefinition::new()
+        });
+
+        let body = world.create_body(BodyDefinition {
+            kind: BodyKind::Dynamic,
+            ..BodyDefinition::new()
+        });
+        let _ = body.attach_circle(Vec2::ZERO, 1.0, ShapeDefinition::new());
+        let body_id = body.id();
+        world.step(DT, World::SUB_STEPS);
+
+        let body = world.body(body_id).unwrap();
+        let velocity = body.linear_velocity();
+        assert!(
+            (velocity.y - (-100.0 * DT)).abs() < 1e-3,
+            "definition gravity was not applied: {velocity:?}"
+        );
+    }
+}

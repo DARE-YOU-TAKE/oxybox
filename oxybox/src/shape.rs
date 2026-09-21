@@ -211,3 +211,74 @@ impl std::fmt::Debug for Shape<'_> {
         self.id().fmt(f)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use glam::Vec2;
+
+    use crate::*;
+
+    #[test]
+    fn shape_dimensions() {
+        let world = World::new(WorldDefinition::new());
+
+        let body = world.create_body(BodyDefinition::new());
+        let rect = body.attach_rectangle(
+            Vec2::new(3.0, 7.0),
+            Vec2::ZERO,
+            Rotation::IDENTITY,
+            ShapeDefinition::default(),
+        );
+        let circle = body.attach_circle(Vec2::new(100.0, 100.0), 2.0, ShapeDefinition::default());
+
+        // half dimensions in, full dimensions out
+        assert_eq!(rect.kind(), ShapeKind::Polygon);
+        assert!((rect.width() - 6.0).abs() < 1e-3, "{}", rect.width());
+        assert!((rect.height() - 14.0).abs() < 1e-3, "{}", rect.height());
+
+        // the circle's offset moves it, but must not change its extents
+        assert_eq!(circle.kind(), ShapeKind::Circle);
+        assert_eq!(circle.dimensions(), Vec2::new(4.0, 4.0));
+    }
+
+    #[test]
+    fn a_shape_finds_its_body() {
+        let world = World::new(WorldDefinition::new());
+
+        let body = world.create_body(BodyDefinition {
+            position: Vec2::new(3.0, 4.0),
+            ..BodyDefinition::new()
+        });
+        let body_id = body.id();
+        let shape = body.attach_circle(Vec2::ZERO, 1.0, ShapeDefinition::new());
+
+        assert_eq!(shape.body().id(), body_id);
+    }
+
+    #[test]
+    fn sibling_shape_handles_coexist() {
+        let world = World::new(WorldDefinition::new());
+
+        let body = world.create_body(BodyDefinition::new());
+
+        // two handles to different shapes of one body, live at the same time and both mutable.
+        // nothing in the API is allowed to be more restrictive than Box2D is in C, and C lets you
+        // hold as many shape ids as you like.
+        let left = body.attach_circle(Vec2::new(-1.0, 0.0), 1.0, ShapeDefinition::new());
+        let right = body.attach_circle(Vec2::new(1.0, 0.0), 1.0, ShapeDefinition::new());
+
+        left.set_friction(0.25);
+        right.set_friction(0.75);
+
+        assert_eq!(left.friction(), 0.25, "the left shape's friction did not stick");
+        assert_eq!(right.friction(), 0.75, "the right shape's friction did not stick");
+
+        // and the edits are still there when the shapes are fetched back out of the world
+        let (left, right) = (left.id(), right.id());
+        assert_eq!(world.shape(left).unwrap().friction(), 0.25);
+        assert_eq!(world.shape(right).unwrap().friction(), 0.75);
+
+        // and the handles taken at attach time are still the live ones
+        assert_eq!(world.shape(left).unwrap().id(), left);
+    }
+}

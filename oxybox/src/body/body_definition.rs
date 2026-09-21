@@ -203,3 +203,26 @@ impl<'a> Default for BodyDefinition<'a> {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::*;
+
+    #[test]
+    fn names_reach_box2d() {
+        let world = World::new(WorldDefinition::new());
+        let name = std::ffi::CString::new("player").unwrap();
+
+        let named = world.create_body(BodyDefinition {
+            name: Some(BodyName::new(&name)),
+            ..BodyDefinition::new()
+        });
+        let got = unsafe { std::ffi::CStr::from_ptr(sys::b2Body_GetName(named.id().into())) };
+        assert_eq!(got.to_str().unwrap(), "player");
+
+        // `None` must arrive as a null pointer, which Box2D stores as an empty name
+        let anonymous = world.create_body(BodyDefinition::new());
+        let got = unsafe { std::ffi::CStr::from_ptr(sys::b2Body_GetName(anonymous.id().into())) };
+        assert_eq!(got.to_str().unwrap(), "");
+    }
+}

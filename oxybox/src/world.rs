@@ -306,3 +306,127 @@ impl Default for World {
 #[derive(Debug, thiserror::Error)]
 #[error("could not make new world; only 128 may exist at once")]
 pub struct TooManyWorlds;
+
+#[cfg(test)]
+mod tests {
+    use glam::Vec2;
+
+    use crate::*;
+
+    const DT: f32 = 1.0 / 60.0;
+
+    #[test]
+    fn overlap_circle_respects_the_query_filter() {
+        const CATEGORY: u64 = 0b10;
+
+        let mut world = World::new(WorldDefinition::new());
+
+        let body = world.create_body(BodyDefinition::new());
+        let shape = body
+            .attach_circle(
+                Vec2::ZERO,
+                1.0,
+                ShapeDefinition {
+                    filter: Filter {
+                        category_bits: CATEGORY,
+                        mask_bits: CATEGORY,
+                        ..Filter::new()
+                    },
+                    ..ShapeDefinition::new()
+                },
+            )
+            .id();
+        world.step(DT, World::SUB_STEPS);
+
+        // the default query has a category of 1, which this shape's mask excludes, so it must not
+        // be reported even though it plainly overlaps
+        let hit = world.overlap_circle(Vec2::ZERO, 1.0, QueryFilter::default(), |_| Some(()));
+        assert_eq!(hit, None, "shape was reported despite a non-matching filter");
+
+        // a query that the shape's mask accepts finds it
+        let filter = QueryFilter {
+            category_bits: CATEGORY,
+            mask_bits: CATEGORY,
+        };
+        let hit = world.overlap_circle(Vec2::ZERO, 1.0, filter, |s| (s.id() == shape).then_some(()));
+        assert_eq!(hit, Some(()), "shape was not reported despite a matching filter");
+    }
+
+    #[test]
+    fn an_overlap_callback_can_read_what_it_is_handed() {
+        const USER_DATA: usize = 0xBEEF;
+        const BODY_POSITION: Vec2 = Vec2::new(3.0, 4.0);
+
+        let mut world = World::new(WorldDefinition::new());
+
+        let body = world.create_body(BodyDefinition {
+            position: BODY_POSITION,
+            ..BodyDefinition::new()
+        });
+        let shape = body.attach_circle(Vec2::ZERO, 2.0, ShapeDefinition::new());
+        shape.set_user_data(USER_DATA);
+
+        let body_id = body.id();
+        let shape_id = shape.id();
+        world.step(DT, World::SUB_STEPS);
+
+        let found = world.overlap_circle(BODY_POSITION, 1.0, QueryFilter::default(), |s| {
+            Some((s.id(), s.user_data(), s.dimensions(), s.body_id(), s.body().position()))
+        });
+
+        let (id, user_data, dimensions, hit_body, position) = found.expect("the shape overlaps the query circle");
+        assert_eq!(id, shape_id);
+        assert_eq!(user_data, USER_DATA);
+        assert_eq!(dimensions, Vec2::new(4.0, 4.0), "a circle of radius 2 measures 4x4");
+        assert_eq!(hit_body, body_id);
+        assert_eq!(position, BODY_POSITION);
+    }
+
+    #[test]
+    fn contact_events_are_empty_before_stepping() {
+        let world = World::new(WorldDefinition::new());
+
+        assert_eq!(world.contact_events().count(), 0);
+    }
+
+    #[test]
+    fn ids_from_another_world_are_rejected() {
+        let owner = World::new(WorldDefinition::new());
+        let mut other = World::new(WorldDefinition::new());
+
+        let body = owner.create_body(BodyDefinition::new());
+        let shape_id = body.attach_circle(Vec2::ZERO, 1.0, ShapeDefinition::new()).id();
+
+        let body_id = body.id();
+
+        // the id is perfectly valid -- it just does not name anything in `other`
+        assert!(body_id.is_valid());
+        assert!(shape_id.is_valid());
+
+        assert!(other.body(body_id).is_none(), "a foreign body id was accepted");
+        assert!(other.shape(shape_id).is_none(), "a foreign shape id was accepted");
+        assert!(!other.destroy_body(body_id), "a foreign body was destroyed");
+
+        // and the owning world still hands them out
+        assert!(owner.body(body_id).is_some());
+        assert!(owner.shape(shape_id).is_some());
+    }
+
+    #[test]
+    fn destroying_a_body_invalidates_its_handles() {
+        let mut world = World::new(WorldDefinition::new());
+
+        let body = world.create_body(BodyDefinition::new());
+        let shape_id = body.attach_circle(Vec2::ZERO, 1.0, ShapeDefinition::new()).id();
+        let body_id = body.id();
+
+        assert!(world.destroy_body(body_id), "the body should have been destroyed");
+
+        // destroying a body takes its shapes with it, and neither handle is handed out again
+        assert!(world.body(body_id).is_none());
+        assert!(world.shape(shape_id).is_none());
+
+        // a second destroy is a no-op rather than a double free
+        assert!(!world.destroy_body(body_id));
+    }
+}
