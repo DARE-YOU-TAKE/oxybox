@@ -24,7 +24,7 @@ pub struct PolygonDraw<'a> {
 impl World {
     /// Takes a callback and draws all the shapes in the world. This function is very stubbed, and
     /// more work is needed to added full support.
-    pub fn draw_shapes<DrawShapesFn>(&self, mut draw_shapes: DrawShapesFn)
+    pub fn draw_shapes<DrawShapesFn>(&mut self, mut draw_shapes: DrawShapesFn)
     where
         DrawShapesFn: FnMut(DrawShapeCommand<'_>),
     {
