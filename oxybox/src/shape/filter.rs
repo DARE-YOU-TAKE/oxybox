@@ -10,7 +10,7 @@ pub struct Filter {
     /// The collision category bits. Normally you would just set one bit as a bitflag.
     ///
     /// The category bits should represent your application object types.
-    /// 
+    ///
     /// The default value is `1`.
     pub category_bits: u64,
 
@@ -18,7 +18,7 @@ pub struct Filter {
     /// collision.
     ///
     /// For example, you may want your player to only collide with static objects and other players.
-    /// 
+    ///
     /// The default value is `u64::MAX`.
     pub mask_bits: u64,
 

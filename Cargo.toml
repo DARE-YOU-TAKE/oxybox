@@ -4,7 +4,7 @@ default-members = ["oxybox"]
 resolver = "2"
 
 [workspace.dependencies]
-glam = "0.33"
+glam = "0.34"
 
 [workspace.package]
 version = "0.2.0"
